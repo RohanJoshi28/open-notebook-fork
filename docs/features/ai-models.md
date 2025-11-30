@@ -110,7 +110,7 @@ export GEMINI_API_KEY=your_api_key_here
 ```
 
 **Recommended Models**
-- **Language**: `gemini-2.0-flash`, `gemini-2.5-pro-preview-06-05`
+- **Language**: `gemini-2.0-flash`, `gemini-3-pro-preview` (Responses API)
 - **TTS**: `gemini-2.5-flash-preview-tts`, `gemini-2.5-pro-preview-tts`
 - **Embedding**: `text-embedding-004`
 
@@ -120,9 +120,12 @@ export GEMINI_API_KEY=your_api_key_here
 - Strong multilingual capabilities
 - Integrated TTS with good quality
 
+> **Gemini 3 Output Format**  
+> Google's `gemini-3-pro-preview` uses the Gemini Responses API which emits structured JSON parts instead of plain strings. Open Notebook now flattens those responses automatically, so you can set Gemini 3 as any chat/tools/large-context model without changing prompts.
+
 **Considerations**
 - No STT support
-- Newer models may have limited availability
+- Some preview models (including Gemini 3) may have limited regional availability
 
 ---
 
@@ -517,7 +520,7 @@ export OPENAI_API_KEY=your_key
 | Chat Model | `claude-3-5-sonnet-latest` | Anthropic |
 | Tools Model | `grok-3` | xAI |
 | Transformations | `grok-3-mini` | xAI |
-| Large Context | `gemini-2.5-pro-preview-06-05` | Google |
+| Large Context | `gemini-3-pro-preview` | Google |
 | Embedding | `voyage-3.5-lite` | Voyage |
 | Text-to-Speech | `eleven_turbo_v2_5` | ElevenLabs |
 | Speech-to-Text | `whisper-1` | OpenAI |

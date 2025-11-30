@@ -1,13 +1,13 @@
 import asyncio
 import json
-from typing import AsyncGenerator, List, Optional
+from typing import Any, AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import ChatSession, Source
@@ -15,6 +15,7 @@ from open_notebook.exceptions import (
     NotFoundError,
 )
 from open_notebook.graphs.source_chat import source_chat_graph as source_chat_graph
+from open_notebook.utils import render_message_content
 
 router = APIRouter()
 
@@ -33,6 +34,19 @@ class ChatMessage(BaseModel):
     type: str = Field(..., description="Message type (human|ai)")
     content: str = Field(..., description="Message content")
     timestamp: Optional[str] = Field(None, description="Message timestamp")
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _ensure_string_content(cls, value: Any) -> str:
+        """Normalize structured message payloads to plain text."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            return render_message_content(value)
+        except Exception:
+            return str(value)
 
 class ContextIndicator(BaseModel):
     sources: List[str] = Field(default_factory=list, description="Source IDs used in context")
@@ -189,7 +203,7 @@ async def get_source_chat_session(
                     messages.append(ChatMessage(
                         id=getattr(msg, 'id', f"msg_{len(messages)}"),
                         type=msg.type if hasattr(msg, 'type') else 'unknown',
-                        content=msg.content if hasattr(msg, 'content') else str(msg),
+                        content=_render_message(msg),
                         timestamp=None  # LangChain messages don't have timestamps by default
                     ))
             
@@ -362,7 +376,7 @@ async def stream_source_chat_response(
                 if hasattr(msg, 'type') and msg.type == 'ai':
                     ai_event = {
                         "type": "ai_message", 
-                        "content": msg.content if hasattr(msg, 'content') else str(msg),
+                        "content": _render_message(msg),
                         "timestamp": None
                     }
                     yield f"data: {json.dumps(ai_event)}\n\n"
@@ -444,3 +458,9 @@ async def send_message_to_source_chat(
     except Exception as e:
         logger.error(f"Error sending message to source chat: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
+
+
+def _render_message(msg: Any) -> str:
+    if hasattr(msg, "content"):
+        return render_message_content(msg.content)
+    return str(msg)

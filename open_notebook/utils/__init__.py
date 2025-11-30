@@ -11,6 +11,7 @@ from .text_utils import (
     parse_thinking_content,
     remove_non_ascii,
     remove_non_printable,
+    render_message_content,
     split_text,
 )
 from .token_utils import token_cost, token_count
@@ -26,6 +27,7 @@ __all__ = [
     "remove_non_printable",
     "parse_thinking_content",
     "clean_thinking_content",
+    "render_message_content",
     "token_count",
     "token_cost",
     "compare_versions",
