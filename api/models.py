@@ -66,7 +66,7 @@ class ModelCreate(BaseModel):
     )
     type: str = Field(
         ...,
-        description="Model type (language, embedding, text_to_speech, speech_to_text)",
+        description="Model type (language, embedding, text_to_speech, speech_to_text, image)",
     )
 
 

@@ -208,6 +208,11 @@ export interface SendNotebookChatMessageRequest {
   model_override?: string
 }
 
+export interface SendNotebookImageMessageRequest extends SendNotebookChatMessageRequest {
+  image_model_id: string
+  use_rag?: boolean
+}
+
 export interface BuildContextRequest {
   notebook_id: string
   context_config: {

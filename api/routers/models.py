@@ -91,7 +91,7 @@ async def create_model(model_data: ModelCreate):
     """Create a new model configuration."""
     try:
         # Validate model type
-        valid_types = ["language", "embedding", "text_to_speech", "speech_to_text"]
+        valid_types = ["language", "embedding", "text_to_speech", "speech_to_text", "image"]
         if model_data.type not in valid_types:
             raise HTTPException(
                 status_code=400,
@@ -289,6 +289,12 @@ async def get_provider_availability():
                 for model_type, providers in esperanto_available.items():
                     if provider in providers:
                         supported_types[provider].append(model_type)
+
+        # Manually flag google as supporting image generation when configured
+        if provider_status.get("google"):
+            google_types = supported_types.setdefault("google", [])
+            if "image" not in google_types:
+                google_types.append("image")
         
         return ProviderAvailabilityResponse(
             available=available_providers,

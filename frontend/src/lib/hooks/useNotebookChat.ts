@@ -13,6 +13,7 @@ import {
   NoteResponse
 } from '@/lib/types/api'
 import { ContextSelections } from '@/app/(dashboard)/notebooks/[id]/page'
+import { ChatSendOptions } from '@/lib/types/chat'
 
 interface UseNotebookChatParams {
   notebookId: string
@@ -165,7 +166,7 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   }, [notebookId, sources, notes, contextSelections])
 
   // Send message (synchronous, no streaming)
-  const sendMessage = useCallback(async (message: string, modelOverride?: string) => {
+  const sendMessage = useCallback(async (message: string, modelOverride?: string, options?: ChatSendOptions) => {
     let sessionId = currentSessionId
 
     // Auto-create session if none exists
@@ -200,23 +201,41 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     setIsSending(true)
 
     try {
-      // Build context and send message
-      const context = await buildContext()
-      const response = await chatApi.sendMessage({
-        session_id: sessionId,
-        message,
-        context,
-        model_override: modelOverride ?? (currentSession?.model_override ?? undefined)
-      })
+      const isImageRequest = options?.mode === 'image'
+      if (isImageRequest && !options?.imageModelId) {
+        throw new Error('Image model is required for image generation')
+      }
+      let context = { sources: [] as Array<Record<string, unknown>>, notes: [] as Array<Record<string, unknown>> }
+      if (!isImageRequest || options?.useRag) {
+        context = await buildContext()
+      }
 
-      // Update messages with API response
-      setMessages(response.messages)
+      const overrideToSend = modelOverride ?? (currentSession?.model_override ?? undefined)
+
+      const payload = isImageRequest
+        ? await chatApi.generateImage({
+            session_id: sessionId,
+            message,
+            context,
+            model_override: overrideToSend,
+            image_model_id: options?.imageModelId ?? '',
+            use_rag: Boolean(options?.useRag)
+          })
+        : await chatApi.sendMessage({
+            session_id: sessionId,
+            message,
+            context,
+            model_override: overrideToSend
+          })
+
+      setMessages(payload.messages)
 
       // Refetch current session to get updated data
       await refetchCurrentSession()
     } catch (error) {
       console.error('Error sending message:', error)
-      toast.error('Failed to send message')
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message'
+      toast.error(errorMessage)
       // Remove optimistic message on error
       setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')))
     } finally {

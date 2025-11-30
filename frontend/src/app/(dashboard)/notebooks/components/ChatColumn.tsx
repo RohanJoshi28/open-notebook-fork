@@ -94,7 +94,7 @@ export function ChatColumn({ notebookId, contextSelections }: ChatColumnProps) {
       messages={chat.messages}
       isStreaming={chat.isSending}
       contextIndicators={null}
-      onSendMessage={(message, modelOverride) => chat.sendMessage(message, modelOverride)}
+      onSendMessage={(message, modelOverride, options) => chat.sendMessage(message, modelOverride, options)}
       modelOverride={chat.currentSession?.model_override ?? undefined}
       onModelChange={(model) => {
         if (chat.currentSessionId) {
@@ -110,6 +110,7 @@ export function ChatColumn({ notebookId, contextSelections }: ChatColumnProps) {
       loadingSessions={chat.loadingSessions}
       notebookContextStats={contextStats}
       notebookId={notebookId}
+      enableImageGeneration
     />
   )
 }

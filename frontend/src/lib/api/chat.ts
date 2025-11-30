@@ -5,6 +5,7 @@ import {
   CreateNotebookChatSessionRequest,
   UpdateNotebookChatSessionRequest,
   SendNotebookChatMessageRequest,
+  SendNotebookImageMessageRequest,
   NotebookChatMessage,
   BuildContextRequest,
   BuildContextResponse,
@@ -54,6 +55,17 @@ export const chatApi = {
       messages: NotebookChatMessage[]
     }>(
       `/chat/execute`,
+      data
+    )
+    return response.data
+  },
+
+  generateImage: async (data: SendNotebookImageMessageRequest) => {
+    const response = await apiClient.post<{
+      session_id: string
+      messages: NotebookChatMessage[]
+    }>(
+      `/chat/image`,
       data
     )
     return response.data

@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock } from 'lucide-react'
+import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock, Image as ImageIcon, Sparkles } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import {
   SourceChatMessage,
@@ -21,6 +21,8 @@ import { MessageActions } from '@/components/source/MessageActions'
 import { convertReferencesToCompactMarkdown, createCompactReferenceLinkComponent } from '@/lib/utils/source-references'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
 import { toast } from 'sonner'
+import { ChatSendOptions } from '@/lib/types/chat'
+import { ImageModelSelector } from './ImageModelSelector'
 
 interface NotebookContextStats {
   sourcesInsights: number
@@ -34,7 +36,7 @@ interface ChatPanelProps {
   messages: SourceChatMessage[]
   isStreaming: boolean
   contextIndicators: SourceChatContextIndicator | null
-  onSendMessage: (message: string, modelOverride?: string) => void
+  onSendMessage: (message: string, modelOverride?: string, options?: ChatSendOptions) => void
   modelOverride?: string
   onModelChange?: (model?: string) => void
   // Session management props
@@ -52,6 +54,7 @@ interface ChatPanelProps {
   notebookContextStats?: NotebookContextStats
   // Notebook ID for saving notes
   notebookId?: string
+  enableImageGeneration?: boolean
 }
 
 export function ChatPanel({
@@ -71,10 +74,14 @@ export function ChatPanel({
   title = 'Chat with Source',
   contextType = 'source',
   notebookContextStats,
-  notebookId
+  notebookId,
+  enableImageGeneration = false
 }: ChatPanelProps) {
   const [input, setInput] = useState('')
   const [sessionManagerOpen, setSessionManagerOpen] = useState(false)
+  const [imageMode, setImageMode] = useState(false)
+  const [useRagForImage, setUseRagForImage] = useState(false)
+  const [imageModelId, setImageModelId] = useState<string | undefined>(undefined)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { openModal } = useModalManager()
@@ -98,9 +105,33 @@ export function ChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  useEffect(() => {
+    if (!enableImageGeneration) {
+      setImageMode(false)
+      setUseRagForImage(false)
+    }
+  }, [enableImageGeneration])
+
+  useEffect(() => {
+    if (!imageMode) {
+      setUseRagForImage(false)
+    }
+  }, [imageMode])
+
   const handleSend = () => {
     if (input.trim() && !isStreaming) {
-      onSendMessage(input.trim(), modelOverride)
+      if (imageMode && !imageModelId) {
+        toast.error('Select an image model before generating an image')
+        return
+      }
+      const options = imageMode
+        ? ({
+            mode: 'image',
+            useRag: useRagForImage,
+            imageModelId,
+          } satisfies ChatSendOptions)
+        : undefined
+      onSendMessage(input.trim(), modelOverride, options)
       setInput('')
     }
   }
@@ -284,6 +315,40 @@ export function ChatPanel({
                 onModelChange={onModelChange}
                 disabled={isStreaming}
               />
+            </div>
+          )}
+
+          {enableImageGeneration && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={imageMode ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1"
+                disabled={isStreaming}
+                onClick={() => setImageMode((prev) => !prev)}
+              >
+                <ImageIcon className="h-4 w-4" />
+                Image Generation
+              </Button>
+              {imageMode && (
+                <>
+                  <Button
+                    variant={useRagForImage ? 'default' : 'outline'}
+                    size="sm"
+                    className="gap-1"
+                    disabled={isStreaming}
+                    onClick={() => setUseRagForImage((prev) => !prev)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Use RAG
+                  </Button>
+                  <ImageModelSelector
+                    value={imageModelId}
+                    onChange={setImageModelId}
+                    disabled={isStreaming}
+                  />
+                </>
+              )}
             </div>
           )}
 

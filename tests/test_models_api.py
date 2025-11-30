@@ -233,6 +233,28 @@ class TestModelsProviderAvailability:
 
     @patch("api.routers.models.os.environ.get")
     @patch("api.routers.models.AIFactory.get_available_providers")
+    def test_google_availability_reports_image_support(self, mock_esperanto, mock_env, client):
+        """Google provider should include 'image' when API key is configured."""
+
+        def env_side_effect(key):
+            if key == "GOOGLE_API_KEY":
+                return "test-key"
+            return None
+
+        mock_env.side_effect = env_side_effect
+        mock_esperanto.return_value = {
+            "language": ["google"],
+        }
+
+        response = client.get("/api/models/providers")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "google" in data["available"]
+        assert "google" in data["supported_types"]
+        assert "image" in data["supported_types"]["google"]
+    @patch("api.routers.models.os.environ.get")
+    @patch("api.routers.models.AIFactory.get_available_providers")
     def test_individual_mode_llm_only(self, mock_esperanto, mock_env, client):
         """Test individual mode-specific var (LLM only)."""
 

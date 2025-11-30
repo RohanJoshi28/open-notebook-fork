@@ -3,7 +3,7 @@ import sqlite3
 from typing import Annotated, Optional
 
 from ai_prompter import Prompter
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -12,18 +12,61 @@ from typing_extensions import TypedDict
 
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.domain.notebook import Notebook
+from open_notebook.graphs.image_generation import generate_image_message
 from open_notebook.graphs.utils import provision_langchain_model
 
 
 class ThreadState(TypedDict):
     messages: Annotated[list, add_messages]
     notebook: Optional[Notebook]
-    context: Optional[str]
+    context: Optional[dict]
     context_config: Optional[dict]
     model_override: Optional[str]
+    image_generation: Optional[dict]
 
 
 def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:
+    if state.get("image_generation"):
+        image_payload = state.get("image_generation") or {}
+        planner_model_id = (
+            config.get("configurable", {}).get("model_id")
+            or state.get("model_override")
+        )
+
+        def run_image():
+            new_loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(new_loop)
+                return new_loop.run_until_complete(
+                    generate_image_message(
+                        image_request=image_payload,
+                        context=state.get("context"),
+                        planner_model_id=planner_model_id,
+                    )
+                )
+            finally:
+                new_loop.close()
+                asyncio.set_event_loop(None)
+
+        try:
+            asyncio.get_running_loop()
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_image)
+                ai_message = future.result()
+        except RuntimeError:
+            ai_message = asyncio.run(
+                generate_image_message(
+                    image_request=image_payload,
+                    context=state.get("context"),
+                    planner_model_id=planner_model_id,
+                )
+            )
+
+        state["image_generation"] = None
+        return {"messages": ai_message}
+
     system_prompt = Prompter(prompt_template="chat").render(data=state)  # type: ignore[arg-type]
     payload = [SystemMessage(content=system_prompt)] + state.get("messages", [])
     model_id = config.get("configurable", {}).get("model_id") or state.get(

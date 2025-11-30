@@ -91,6 +91,12 @@ export default function ModelsPage() {
               providers={providers}
               isLoading={modelsLoading}
             />
+            <ModelTypeSection 
+              type="image" 
+              models={models} 
+              providers={providers}
+              isLoading={modelsLoading}
+            />
           </div>
         </div>
         </div>
