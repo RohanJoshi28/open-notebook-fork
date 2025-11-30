@@ -1,10 +1,10 @@
 import asyncio
 import json
-from typing import Any, AsyncGenerator, List, Optional
+from typing import Any, AsyncGenerator, Iterable, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
@@ -199,7 +199,7 @@ async def get_source_chat_session(
         if thread_state and thread_state.values:
             # Extract messages
             if "messages" in thread_state.values:
-                for msg in thread_state.values["messages"]:
+                for msg in _iter_messages(thread_state.values["messages"]):
                     messages.append(ChatMessage(
                         id=getattr(msg, 'id', f"msg_{len(messages)}"),
                         type=msg.type if hasattr(msg, 'type') else 'unknown',
@@ -372,7 +372,7 @@ async def stream_source_chat_response(
         
         # Stream the complete AI response
         if "messages" in result:
-            for msg in result["messages"]:
+            for msg in _iter_messages(result["messages"]):
                 if hasattr(msg, 'type') and msg.type == 'ai':
                     ai_event = {
                         "type": "ai_message", 
@@ -458,6 +458,19 @@ async def send_message_to_source_chat(
     except Exception as e:
         logger.error(f"Error sending message to source chat: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
+
+
+def _iter_messages(raw_messages: Any) -> Iterable[Any]:
+    """Normalize LangGraph message containers to a plain iterable."""
+    if raw_messages is None:
+        return []
+    if isinstance(raw_messages, BaseMessage):
+        return [raw_messages]
+    if isinstance(raw_messages, list):
+        return raw_messages
+    if isinstance(raw_messages, tuple):
+        return list(raw_messages)
+    return [raw_messages]
 
 
 def _render_message(msg: Any) -> str:

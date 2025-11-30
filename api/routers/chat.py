@@ -1,7 +1,8 @@
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
@@ -199,7 +200,7 @@ async def get_session(session_id: str):
         # Extract messages from state
         messages: list[ChatMessage] = []
         if thread_state and thread_state.values and "messages" in thread_state.values:
-            for msg in thread_state.values["messages"]:
+            for msg in _iter_messages(thread_state.values["messages"]):
                 messages.append(
                     ChatMessage(
                         id=getattr(msg, "id", f"msg_{len(messages)}"),
@@ -360,8 +361,6 @@ async def execute_chat(request: ExecuteChatRequest):
         state_values["model_override"] = model_override
 
         # Add user message to state
-        from langchain_core.messages import HumanMessage
-
         user_message = HumanMessage(content=request.message)
         state_values["messages"].append(user_message)
 
@@ -381,7 +380,7 @@ async def execute_chat(request: ExecuteChatRequest):
 
         # Convert messages to response format
         messages: list[ChatMessage] = []
-        for msg in result.get("messages", []):
+        for msg in _iter_messages(result.get("messages")):
             messages.append(
                 ChatMessage(
                     id=getattr(msg, "id", f"msg_{len(messages)}"),
@@ -505,6 +504,19 @@ async def build_context(request: BuildContextRequest):
     except Exception as e:
         logger.error(f"Error building context: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error building context: {str(e)}")
+
+
+def _iter_messages(raw_messages: Any) -> Iterable[Any]:
+    """LangGraph can return a single message or a list; normalize to an iterable."""
+    if raw_messages is None:
+        return []
+    if isinstance(raw_messages, BaseMessage):
+        return [raw_messages]
+    if isinstance(raw_messages, list):
+        return raw_messages
+    if isinstance(raw_messages, tuple):
+        return list(raw_messages)
+    return [raw_messages]
 
 
 def _render_message(msg: Any) -> str:
