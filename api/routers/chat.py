@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import ChatSession, Note, Notebook, Source
@@ -12,6 +12,7 @@ from open_notebook.exceptions import (
     NotFoundError,
 )
 from open_notebook.graphs.chat import graph as chat_graph
+from open_notebook.utils import render_message_content
 
 router = APIRouter()
 
@@ -36,6 +37,19 @@ class ChatMessage(BaseModel):
     type: str = Field(..., description="Message type (human|ai)")
     content: str = Field(..., description="Message content")
     timestamp: Optional[str] = Field(None, description="Message timestamp")
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _ensure_string_content(cls, value: Any) -> str:
+        """Normalize structured message payloads (e.g., Gemini parts) to plain text."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            return render_message_content(value)
+        except Exception:
+            return str(value)
 
 
 class ChatSessionResponse(BaseModel):
@@ -190,7 +204,7 @@ async def get_session(session_id: str):
                     ChatMessage(
                         id=getattr(msg, "id", f"msg_{len(messages)}"),
                         type=msg.type if hasattr(msg, "type") else "unknown",
-                        content=msg.content if hasattr(msg, "content") else str(msg),
+                        content=_render_message(msg),
                         timestamp=None,  # LangChain messages don't have timestamps by default
                     )
                 )
@@ -372,7 +386,7 @@ async def execute_chat(request: ExecuteChatRequest):
                 ChatMessage(
                     id=getattr(msg, "id", f"msg_{len(messages)}"),
                     type=msg.type if hasattr(msg, "type") else "unknown",
-                    content=msg.content if hasattr(msg, "content") else str(msg),
+                    content=_render_message(msg),
                     timestamp=None,
                 )
             )
@@ -491,3 +505,9 @@ async def build_context(request: BuildContextRequest):
     except Exception as e:
         logger.error(f"Error building context: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error building context: {str(e)}")
+
+
+def _render_message(msg: Any) -> str:
+    if hasattr(msg, "content"):
+        return render_message_content(msg.content)
+    return str(msg)

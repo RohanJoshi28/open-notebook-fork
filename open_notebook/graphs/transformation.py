@@ -7,7 +7,7 @@ from typing_extensions import TypedDict
 from open_notebook.domain.notebook import Source
 from open_notebook.domain.transformation import DefaultPrompts, Transformation
 from open_notebook.graphs.utils import provision_langchain_model
-from open_notebook.utils import clean_thinking_content
+from open_notebook.utils import clean_thinking_content, render_message_content
 
 
 class TransformationState(TypedDict):
@@ -35,7 +35,7 @@ async def run_transformation(state: dict, config: RunnableConfig) -> dict:
     system_prompt = Prompter(template_text=transformation_template_text).render(
         data=state
     )
-    content_str = str(content) if content else ""
+    content_str = render_message_content(content) if content is not None else ""
     payload = [SystemMessage(content=system_prompt), HumanMessage(content=content_str)]
     chain = await provision_langchain_model(
         str(payload),
@@ -47,7 +47,7 @@ async def run_transformation(state: dict, config: RunnableConfig) -> dict:
     response = await chain.ainvoke(payload)
 
     # Clean thinking content from the response
-    response_content = response.content if isinstance(response.content, str) else str(response.content)
+    response_content = render_message_content(response.content)
     cleaned_content = clean_thinking_content(response_content)
 
     if source:

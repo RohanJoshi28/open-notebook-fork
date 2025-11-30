@@ -5,7 +5,7 @@ Extracted from main utils to avoid circular imports.
 
 import re
 import unicodedata
-from typing import Tuple
+from typing import Any, Tuple
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -139,3 +139,48 @@ def clean_thinking_content(content: str) -> str:
     """
     _, cleaned_content = parse_thinking_content(content)
     return cleaned_content
+
+
+def render_message_content(content: Any) -> str:
+    """
+    Convert structured LangChain/Gemini message content into a plain string.
+
+    Gemini 3 responses often come back as lists of typed content parts instead of simple
+    strings. This helper normalizes those payloads so downstream code that expects text
+    keeps working regardless of provider.
+    """
+
+    def _render_part(part: Any) -> str:
+        if part is None:
+            return ""
+        if isinstance(part, str):
+            return part
+        if isinstance(part, list):
+            return "".join(_render_part(p) for p in part)
+        if isinstance(part, dict):
+            # Prefer explicit text fields first
+            if isinstance(part.get("text"), str):
+                return part["text"]
+            if isinstance(part.get("content"), str):
+                return part["content"]
+            if "parts" in part:
+                return "".join(_render_part(part["parts"]))
+            # Fall back to any stringifiable value
+            for key in ("argument", "data", "body"):
+                if key in part and isinstance(part[key], str):
+                    return part[key]
+            return str(part)
+        # Handle LangChain message chunk objects that expose .text or .content
+        text_attr = getattr(part, "text", None)
+        if isinstance(text_attr, str):
+            return text_attr
+        content_attr = getattr(part, "content", None)
+        if isinstance(content_attr, str):
+            return content_attr
+        if content_attr is not None:
+            return _render_part(content_attr)
+        # Last resort
+        return str(part)
+
+    rendered = _render_part(content)
+    return rendered.strip()

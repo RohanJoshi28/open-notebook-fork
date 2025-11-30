@@ -14,6 +14,7 @@ from open_notebook.utils import (
     parse_thinking_content,
     remove_non_ascii,
     remove_non_printable,
+    render_message_content,
     split_text,
     token_count,
 )
@@ -123,6 +124,27 @@ class TestTextUtilities:
         assert "<think>" not in result
         assert "Public response" in result
         assert "Internal thoughts" not in result
+
+    def test_render_message_content_plain_string(self):
+        """Structured message helper should pass through plain strings."""
+        assert render_message_content("hello world") == "hello world"
+
+    def test_render_message_content_structured_list(self):
+        """Structured lists from Gemini are flattened correctly."""
+        parts = [
+            {"type": "text", "text": "Hello"},
+            {"type": "text", "text": " World!"},
+        ]
+        assert render_message_content(parts) == "Hello World!"
+
+    def test_render_message_content_nested_objects(self):
+        """Nested message chunks get flattened."""
+        class MockChunk:
+            def __init__(self):
+                self.content = [{"type": "text", "text": "Answer"}]
+
+        mixed = ["Thought:", MockChunk(), {"unexpected": " data"}]
+        assert "Answer" in render_message_content(mixed)
 
 
 # ============================================================================

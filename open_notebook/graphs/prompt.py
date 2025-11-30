@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from open_notebook.graphs.utils import provision_langchain_model
+from open_notebook.utils import render_message_content
 
 
 class PatternChainState(TypedDict):
@@ -31,7 +32,7 @@ async def call_model(state: dict, config: RunnableConfig) -> dict:
 
     response = await chain.ainvoke(payload)
 
-    return {"output": response.content}
+    return {"output": render_message_content(response.content)}
 
 
 agent_state = StateGraph(PatternChainState)

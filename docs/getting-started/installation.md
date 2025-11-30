@@ -461,6 +461,7 @@ After installation, configure your AI models for optimal performance:
 - `gpt-5-mini` (OpenAI) - Great value for most tasks
 - `deepseek-chat` (DeepSeek) - Excellent quality-to-price ratio
 - `gemini-2.0-flash` (Google) - Large context window
+- `gemini-3-pro-preview` (Google) - Gemini Responses API model with improved reasoning
 
 **Premium Options:**
 - `gpt-4o` (OpenAI) - Excellent tool calling
@@ -505,6 +506,7 @@ After installation, configure your AI models for optimal performance:
 1. Visit https://makersuite.google.com/app/apikey
 2. Create new API key
 3. Add to environment variables
+4. Gemini 3 preview models return structured JSON parts; Open Notebook automatically converts them into plain text responses.
 
 ### 4. Model Recommendations by Use Case
 
