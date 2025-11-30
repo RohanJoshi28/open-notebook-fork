@@ -508,6 +508,14 @@ async def build_context(request: BuildContextRequest):
 
 
 def _render_message(msg: Any) -> str:
-    if hasattr(msg, "content"):
-        return render_message_content(msg.content)
-    return str(msg)
+    """
+    Normalize LangChain/Gemini message payloads into plain text for responses.
+    Some providers return structured content (lists of parts, inline data, etc.)
+    and FastAPI's response validation requires that we always emit strings.
+    """
+    content = getattr(msg, "content", msg)
+    try:
+        rendered = render_message_content(content)
+    except Exception:
+        rendered = str(content)
+    return rendered if isinstance(rendered, str) else str(rendered)
