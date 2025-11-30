@@ -161,10 +161,19 @@ def render_message_content(content: Any) -> str:
             # Prefer explicit text fields first
             if isinstance(part.get("text"), str):
                 return part["text"]
-            if isinstance(part.get("content"), str):
-                return part["content"]
+            content_value = part.get("content")
+            if isinstance(content_value, str):
+                return content_value
+            if content_value is not None:
+                return _render_part(content_value)
             if "parts" in part:
-                return "".join(_render_part(part["parts"]))
+                return _render_part(part["parts"])
+            inline_data = part.get("inline_data")
+            if isinstance(inline_data, dict):
+                for key in ("text", "data"):
+                    value = inline_data.get(key)
+                    if isinstance(value, str):
+                        return value
             # Fall back to any stringifiable value
             for key in ("argument", "data", "body"):
                 if key in part and isinstance(part[key], str):
