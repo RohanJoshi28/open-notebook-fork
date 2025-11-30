@@ -5,14 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AddModelForm } from './AddModelForm'
-import { Bot, Mic, Volume2, Search, Trash2, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Bot, Mic, Volume2, Search, Trash2, X, ChevronDown, ChevronUp, Image as ImageIcon } from 'lucide-react'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useDeleteModel } from '@/lib/hooks/use-models'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { useState, useMemo } from 'react'
 
 interface ModelTypeSectionProps {
-  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text'
+  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text' | 'image'
   models: Model[]
   providers: ProviderAvailability
   isLoading: boolean
@@ -59,6 +59,14 @@ export function ModelTypeSection({ type, models, providers, isLoading }: ModelTy
           icon: Mic,
           iconColor: 'text-orange-500',
           bgColor: 'bg-orange-50 dark:bg-orange-950/20'
+        }
+      case 'image':
+        return {
+          title: 'Image Models',
+          description: 'Nano Banana, Gemini, and other image generators',
+          icon: ImageIcon,
+          iconColor: 'text-pink-500',
+          bgColor: 'bg-pink-50 dark:bg-pink-950/20'
         }
     }
   }

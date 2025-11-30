@@ -12,7 +12,7 @@ import { useCreateModel } from '@/lib/hooks/use-models'
 import { Plus } from 'lucide-react'
 
 interface AddModelFormProps {
-  modelType: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text'
+  modelType: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text' | 'image'
   providers: ProviderAvailability
 }
 
@@ -50,6 +50,8 @@ export function AddModelForm({ modelType, providers }: AddModelFormProps) {
         return 'e.g., tts-gpt-4o-mini-tts, tts-1-hd'
       case 'speech_to_text':
         return 'e.g., whisper-1'
+      case 'image':
+        return 'e.g., nanobanana-pro, gemini-3.0-pro-image-preview'
       default:
         return 'Enter model name'
     }

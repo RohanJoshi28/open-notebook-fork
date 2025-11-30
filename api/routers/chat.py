@@ -8,6 +8,7 @@ from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
 from open_notebook.database.repository import ensure_record_id, repo_query
+from open_notebook.domain.models import Model
 from open_notebook.domain.notebook import ChatSession, Note, Notebook, Source
 from open_notebook.exceptions import (
     NotFoundError,
@@ -87,6 +88,20 @@ class ExecuteChatRequest(BaseModel):
 class ExecuteChatResponse(BaseModel):
     session_id: str = Field(..., description="Session ID")
     messages: List[ChatMessage] = Field(..., description="Updated message list")
+
+
+class GenerateImageRequest(BaseModel):
+    session_id: str = Field(..., description="Chat session ID")
+    message: str = Field(..., description="User prompt for image generation")
+    context: Dict[str, Any] = Field(
+        default_factory=lambda: {"sources": [], "notes": []},
+        description="Optional RAG context",
+    )
+    model_override: Optional[str] = Field(
+        None, description="Optional planner model override"
+    )
+    image_model_id: str = Field(..., description="Image model ID (must be type=image)")
+    use_rag: bool = Field(False, description="Whether to include RAG context")
 
 
 class BuildContextRequest(BaseModel):
@@ -396,6 +411,91 @@ async def execute_chat(request: ExecuteChatRequest):
     except Exception as e:
         logger.error(f"Error executing chat: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error executing chat: {str(e)}")
+
+
+@router.post("/chat/image", response_model=ExecuteChatResponse)
+async def generate_image(request: GenerateImageRequest):
+    """Generate an image via Nano Banana models and store messages in the chat session."""
+    try:
+        full_session_id = (
+            request.session_id
+            if request.session_id.startswith("chat_session:")
+            else f"chat_session:{request.session_id}"
+        )
+        session = await ChatSession.get(full_session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        image_model_id = (
+            request.image_model_id
+            if request.image_model_id.startswith("model:")
+            else f"model:{request.image_model_id}"
+        )
+        image_model = await Model.get(image_model_id)
+        if not image_model:
+            raise HTTPException(status_code=404, detail="Image model not found")
+        if image_model.type != "image":
+            raise HTTPException(
+                status_code=400, detail="Selected model is not configured as an image model"
+            )
+
+        model_override = (
+            request.model_override
+            if request.model_override is not None
+            else getattr(session, "model_override", None)
+        )
+
+        current_state = chat_graph.get_state(
+            config=RunnableConfig(configurable={"thread_id": request.session_id})
+        )
+        state_values = current_state.values if current_state else {}
+        state_values["messages"] = state_values.get("messages", [])
+        state_values["context"] = request.context if request.use_rag else {"sources": [], "notes": []}
+        state_values["model_override"] = model_override
+        state_values["image_generation"] = {
+            "image_prompt": request.message,
+            "use_rag": request.use_rag,
+            "image_model": {
+                "id": image_model.id,
+                "name": image_model.name,
+                "provider": image_model.provider,
+            },
+        }
+
+        user_message = HumanMessage(content=request.message)
+        state_values["messages"].append(user_message)
+
+        result = chat_graph.invoke(
+            input=state_values,  # type: ignore[arg-type]
+            config=RunnableConfig(
+                configurable={
+                    "thread_id": request.session_id,
+                    "model_id": model_override,
+                }
+            ),
+        )
+
+        await session.save()
+
+        messages: list[ChatMessage] = []
+        for msg in _iter_messages(result.get("messages")):
+            messages.append(
+                ChatMessage(
+                    id=getattr(msg, "id", f"msg_{len(messages)}"),
+                    type=msg.type if hasattr(msg, "type") else "unknown",
+                    content=_render_message(msg),
+                    timestamp=None,
+                )
+            )
+
+        return ExecuteChatResponse(session_id=request.session_id, messages=messages)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating image: {str(e)}")
 
 
 @router.post("/chat/context", response_model=BuildContextResponse)

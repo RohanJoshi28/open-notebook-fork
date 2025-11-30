@@ -2,7 +2,7 @@ export interface Model {
   id: string
   name: string
   provider: string
-  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text'
+  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text' | 'image'
   created: string
   updated: string
 }
@@ -10,7 +10,7 @@ export interface Model {
 export interface CreateModelRequest {
   name: string
   provider: string
-  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text'
+  type: 'language' | 'embedding' | 'text_to_speech' | 'speech_to_text' | 'image'
 }
 
 export interface ModelDefaults {
