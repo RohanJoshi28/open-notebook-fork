@@ -462,7 +462,10 @@ async def send_message_to_source_chat(
 
 def _render_message(msg: Any) -> str:
     """Normalize structured provider payloads so API always returns strings."""
-    content = getattr(msg, "content", msg)
+    if isinstance(msg, dict) and "content" in msg:
+        content = msg["content"]
+    else:
+        content = getattr(msg, "content", msg)
     try:
         rendered = render_message_content(content)
     except Exception:

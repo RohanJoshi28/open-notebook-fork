@@ -146,6 +146,28 @@ class TestTextUtilities:
         mixed = ["Thought:", MockChunk(), {"unexpected": " data"}]
         assert "Answer" in render_message_content(mixed)
 
+    def test_render_message_content_dict_with_content_list(self):
+        """Dict payloads containing nested content lists are flattened."""
+        payload = {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {"type": "text", "text": " there"},
+            ],
+        }
+        assert render_message_content(payload) == "Hello there"
+
+    def test_render_message_content_inline_data(self):
+        """Inline data blocks fall back to their textual representation."""
+        payload = {
+            "type": "text",
+            "inline_data": {
+                "mime_type": "application/json",
+                "data": '{"status": "ok"}',
+            },
+        }
+        assert '{"status": "ok"}' in render_message_content(payload)
+
 
 # ============================================================================
 # TEST SUITE 2: Token Utilities

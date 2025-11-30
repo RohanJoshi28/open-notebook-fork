@@ -513,7 +513,10 @@ def _render_message(msg: Any) -> str:
     Some providers return structured content (lists of parts, inline data, etc.)
     and FastAPI's response validation requires that we always emit strings.
     """
-    content = getattr(msg, "content", msg)
+    if isinstance(msg, dict) and "content" in msg:
+        content = msg["content"]
+    else:
+        content = getattr(msg, "content", msg)
     try:
         rendered = render_message_content(content)
     except Exception:
