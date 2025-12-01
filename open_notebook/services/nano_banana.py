@@ -76,12 +76,23 @@ async def generate_nano_banana_image(
     data = response.json()
 
     try:
-        inline_data = data["candidates"][0]["content"]["parts"][0]["inlineData"]
-        mime = inline_data.get("mimeType", mime_type)
-        base64_data = inline_data["data"]
+        parts = data["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError) as exc:
-        logger.error("Unexpected Nano Banana API response: %s", data)
+        logger.error("Unexpected Nano Banana API structure: %s", data)
         raise NanoBananaError("Nano Banana API response did not include image data") from exc
+
+    inline_data = None
+    for part in parts:
+        if isinstance(part, dict) and "inlineData" in part:
+            inline_data = part["inlineData"]
+            break
+
+    if not inline_data:
+        logger.error("Nano Banana API response missing inline data: %s", data)
+        raise NanoBananaError("Nano Banana API response did not include image data")
+
+    mime = inline_data.get("mimeType", mime_type)
+    base64_data = inline_data["data"]
 
     logger.debug(
         "Nano Banana response model={} size={} mime={} data_bytes={}",
