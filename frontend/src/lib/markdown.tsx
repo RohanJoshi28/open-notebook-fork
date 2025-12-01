@@ -1,21 +1,26 @@
 import type { ComponentProps } from 'react'
-import { uriTransformer } from 'react-markdown/lib/uri-transformer'
+import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-/** Allow data URI images while still falling back to react-markdown's sanitizer. */
+/** Allow data URI images while still falling back to a basic sanitizer. */
 export function transformImageUri(uri?: string): string {
   if (!uri) return ''
   if (uri.startsWith('data:image/')) {
     return uri
   }
-  return uriTransformer(uri)
+  try {
+    const safeUrl = new URL(uri)
+    return safeUrl.toString()
+  } catch {
+    return ''
+  }
 }
 
-export function MarkdownImage({ className, loading, ...props }: ComponentProps<'img'>) {
+export function MarkdownImage({ className, ...props }: ComponentProps<'img'>) {
   return (
     <img
-      loading={loading ?? 'lazy'}
+      loading="lazy"
       className={cn('rounded-lg border bg-muted/20 shadow max-w-full', className)}
       {...props}
     />
