@@ -4,6 +4,7 @@ import {
   createCompactReferenceLinkComponent,
   createReferenceLinkComponent,
   parseSourceReferences,
+  convertReferencesToCompactMarkdown,
 } from './source-references'
 
 const mockChildren = '1'
@@ -34,5 +35,10 @@ describe('reference link components', () => {
 
     expect(element.type).toBe('a')
     expect(element.props.href).toBe('/sources/source%3Axyz789')
+  })
+
+  it('converts colon-prefixed references to numbered citations', () => {
+    const markdown = convertReferencesToCompactMarkdown('See [source:source:abc-123].')
+    expect(markdown).toContain('#ref-source-source:abc-123')
   })
 })
