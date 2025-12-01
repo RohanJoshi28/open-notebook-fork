@@ -3,20 +3,26 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   createCompactReferenceLinkComponent,
   createReferenceLinkComponent,
+  parseSourceReferences,
 } from './source-references'
 
 const mockChildren = '1'
 
 describe('reference link components', () => {
+  it('parses ids that include prefixes and hyphens', () => {
+    const refs = parseSourceReferences('see [source:source:abc-123]')
+    expect(refs[0]).toMatchObject({ type: 'source', id: 'source:abc-123' })
+  })
+
   it('renders anchor for source references in compact links', () => {
     const LinkComponent = createCompactReferenceLinkComponent(vi.fn())
     const element = LinkComponent({
-      href: '#ref-source-source:abc123',
+      href: '#ref-source-source:abc-123',
       children: mockChildren,
     })
 
     expect(element.type).toBe('a')
-    expect(element.props.href).toBe('/sources/source%3Aabc123')
+    expect(element.props.href).toBe('/sources/source%3Aabc-123')
   })
 
   it('renders anchor for source references in regular links', () => {

@@ -47,9 +47,9 @@ export interface ReferenceData {
  * @returns Array of parsed references
  */
 export function parseSourceReferences(text: string): ParsedReference[] {
-  // Match pattern: (source_insight|note|source):alphanumeric_id
-  // This handles references both inside and outside brackets
-  const pattern = /(source_insight|note|source):([a-zA-Z0-9_]+)/g
+  // Match pattern: (source_insight|note|source):id
+  // IDs may include colons/hyphens because Surreal IDs look like source:abc-123
+  const pattern = /(source_insight|note|source):([a-zA-Z0-9_:\-]+)/g
   const matches: ParsedReference[] = []
 
   let match
