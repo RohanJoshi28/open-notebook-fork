@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react'
-import { uriTransformer } from 'react-markdown/lib/uri-transformer.js'
+import { uriTransformer } from 'react-markdown/lib/uri-transformer'
 
 import { cn } from '@/lib/utils'
 
