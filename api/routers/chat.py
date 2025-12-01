@@ -374,6 +374,7 @@ async def execute_chat(request: ExecuteChatRequest):
         state_values["messages"] = state_values.get("messages", [])
         state_values["context"] = request.context
         state_values["model_override"] = model_override
+        state_values["image_generation"] = None
 
         # Add user message to state
         user_message = HumanMessage(content=request.message)
