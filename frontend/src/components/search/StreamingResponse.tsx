@@ -34,13 +34,16 @@ export function StreamingResponse({
   const { openModal } = useModalManager()
 
   const handleReferenceClick = (type: string, id: string) => {
-    const modalType = type === 'source_insight' ? 'insight' : type as 'source' | 'note' | 'insight'
+    if (type === 'source') {
+      const sourceIdWithPrefix = id.startsWith('source:') ? id : `source:${id}`
+      window.open(`/sources/${sourceIdWithPrefix}`, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    const modalType = type === 'source_insight' ? 'insight' : (type as 'note' | 'insight')
 
     try {
       openModal(modalType, id)
-      // Note: The modal system uses URL parameters and doesn't throw errors for missing items.
-      // The modal component itself will handle displaying "not found" states.
-      // This try-catch is here for future enhancements or unexpected errors.
     } catch {
       const typeLabel = type === 'source_insight' ? 'insight' : type
       toast.error(`This ${typeLabel} could not be found`)
