@@ -54,12 +54,19 @@ async def generate_nano_banana_image(
         "responseModalities": ["IMAGE"],
     }
 
+    logger.debug(
+        "Nano Banana request model={} prompt_preview={!r} (len={})",
+        model_name,
+        prompt[:160],
+        len(prompt),
+    )
+
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(endpoint, params={"key": key}, json=payload)
 
     if response.status_code != 200:
         logger.error(
-            "Nano Banana API error %s: %s",
+            "Nano Banana API error {}: {}",
             response.status_code,
             response.text,
         )
@@ -76,5 +83,13 @@ async def generate_nano_banana_image(
     except (KeyError, IndexError) as exc:
         logger.error("Unexpected Nano Banana API response: %s", data)
         raise NanoBananaError("Nano Banana API response did not include image data") from exc
+
+    logger.debug(
+        "Nano Banana response model={} size={} mime={} data_bytes={}",
+        model_name,
+        inline_data.get("size", "unknown"),
+        mime,
+        len(base64_data),
+    )
 
     return mime, base64_data

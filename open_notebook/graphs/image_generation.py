@@ -98,6 +98,14 @@ async def generate_image_message(
     if image_request.get("use_rag"):
         context_summary = _build_context_summary(context)
 
+    logger.debug(
+        "Image planner start model={} use_rag={} prompt_len={} context_len={}",
+        image_request["image_model"]["name"],
+        image_request.get("use_rag"),
+        len(image_request["image_prompt"]),
+        len(context_summary),
+    )
+
     combined_for_tokens = "\n\n".join(filter(None, [image_request["image_prompt"], context_summary]))
     model = await provision_langchain_model(
         combined_for_tokens,
@@ -114,14 +122,27 @@ async def generate_image_message(
     plan_text = render_message_content(planner_response) or ""
     final_prompt = _extract_final_prompt(plan_text or image_request["image_prompt"])
 
+    logger.debug(
+        "Image planner produced plan_len={} final_prompt_len={}",
+        len(plan_text),
+        len(final_prompt),
+    )
+
     try:
         mime_type, base64_data = await generate_nano_banana_image(
             prompt=final_prompt,
             model_name=image_request["image_model"]["name"],
         )
     except NanoBananaError as exc:
-        logger.error("Nano Banana generation failed: %s", exc)
+        logger.error("Nano Banana generation failed: {}", exc)
         raise
+
+    logger.debug(
+        "Image generated model={} mime={} bytes={}",
+        image_request["image_model"]["name"],
+        mime_type,
+        len(base64_data),
+    )
 
     data_url = f"data:{mime_type};base64,{base64_data}"
     provider = image_request["image_model"]["provider"]
