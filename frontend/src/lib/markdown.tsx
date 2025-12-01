@@ -9,8 +9,14 @@ export function transformImageUri(uri?: string): string {
   if (uri.startsWith('data:image/')) {
     return uri
   }
+  if (uri.startsWith('#ref-')) {
+    return uri
+  }
   try {
     const safeUrl = new URL(uri)
+    if (!['http:', 'https:'].includes(safeUrl.protocol)) {
+      return ''
+    }
     return safeUrl.toString()
   } catch {
     return ''
