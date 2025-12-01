@@ -417,6 +417,13 @@ async def execute_chat(request: ExecuteChatRequest):
 async def generate_image(request: GenerateImageRequest):
     """Generate an image via Nano Banana models and store messages in the chat session."""
     try:
+        logger.debug(
+            "Image request session_id=%s model_override=%s image_model_id=%s use_rag=%s",
+            request.session_id,
+            request.model_override,
+            request.image_model_id,
+            request.use_rag,
+        )
         full_session_id = (
             request.session_id
             if request.session_id.startswith("chat_session:")
@@ -461,6 +468,13 @@ async def generate_image(request: GenerateImageRequest):
                 "provider": image_model.provider,
             },
         }
+        logger.debug(
+            "Prepared image_generation payload model=%s prompt_len=%s rag_context_counts=(%s sources, %s notes)",
+            image_model.name,
+            len(request.message),
+            len(state_values["context"].get("sources", [])),
+            len(state_values["context"].get("notes", [])),
+        )
 
         user_message = HumanMessage(content=request.message)
         state_values["messages"].append(user_message)
@@ -494,7 +508,7 @@ async def generate_image(request: GenerateImageRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating image: {str(e)}")
+        logger.exception("Error generating image for session {}: {}", request.session_id, e)
         raise HTTPException(status_code=500, detail=f"Error generating image: {str(e)}")
 
 
