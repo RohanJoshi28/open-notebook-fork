@@ -1,10 +1,11 @@
 import asyncio
 import concurrent.futures
+import re
 import sqlite3
-from typing import Annotated, Callable, Coroutine, Optional, TypeVar
+from typing import Annotated, Callable, Coroutine, List, Optional, Tuple, TypeVar
 
 from ai_prompter import Prompter
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -18,6 +19,7 @@ from open_notebook.graphs.utils import provision_langchain_model
 
 
 T = TypeVar("T")
+DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+")
 
 
 def _run_async(coro_factory: Callable[[], Coroutine[object, object, T]]) -> T:
@@ -69,17 +71,40 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
     model_id = config.get("configurable", {}).get("model_id") or state.get(
         "model_override"
     )
+    combined_payload_text = str(payload)
+    sanitized_text = DATA_URI_RE.sub("[image omitted]", combined_payload_text)
     model = _run_async(
         lambda: provision_langchain_model(
-            str(payload),
+            sanitized_text,
             model_id,
             "chat",
             max_tokens=8192,
         )
     )
 
-    ai_message = model.invoke(payload)
+    replacements = _strip_data_uris_from_messages(payload)
+    try:
+        ai_message = model.invoke(payload)
+    finally:
+        _restore_data_uris(replacements)
     return {"messages": ai_message}
+
+
+def _strip_data_uris_from_messages(
+    messages: List[BaseMessage],
+) -> List[Tuple[BaseMessage, str]]:
+    replacements: List[Tuple[BaseMessage, str]] = []
+    for message in messages:
+        content = getattr(message, "content", None)
+        if isinstance(content, str) and "data:image" in content:
+            replacements.append((message, content))
+            message.content = DATA_URI_RE.sub("[image omitted]", content)
+    return replacements
+
+
+def _restore_data_uris(replacements: List[Tuple[BaseMessage, str]]) -> None:
+    for message, original_content in replacements:
+        message.content = original_content
 
 
 conn = sqlite3.connect(
