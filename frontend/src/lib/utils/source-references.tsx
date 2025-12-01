@@ -47,8 +47,7 @@ export interface ReferenceData {
  * @returns Array of parsed references
  */
 export function parseSourceReferences(text: string): ParsedReference[] {
-  // Match pattern: (source_insight|note|source):id
-  // IDs may include colons/hyphens because Surreal IDs look like source:abc-123
+  // Match pattern allowing colon/hyphen IDs
   const pattern = /(source_insight|note|source):([a-zA-Z0-9_:\-]+)/g
   const matches: ParsedReference[] = []
 
@@ -176,7 +175,7 @@ export function convertSourceReferences(
  */
 export function convertReferencesToMarkdownLinks(text: string): string {
   // Step 1: Find ALL references using simple greedy pattern
-  const refPattern = /(source_insight|note|source):([a-zA-Z0-9_]+)/g
+  const refPattern = /(source_insight|note|source):([a-zA-Z0-9_:\-]+)/g
   const references: Array<{ type: string; id: string; index: number; length: number }> = []
 
   let match
@@ -457,10 +456,9 @@ export function createCompactReferenceLinkComponent(
   }) => {
     // Check if this is a reference link (starts with #ref-)
     if (href?.startsWith('#ref-')) {
-      // Parse: #ref-source-abc123 → type=source, id=abc123
-      const parts = href.substring(5).split('-') // Remove '#ref-'
+      const parts = href.substring(5).split('-')
       const type = parts[0] as ReferenceType
-      const id = parts.slice(1).join('-') // Rejoin in case ID has dashes
+      const id = parts.slice(1).join('-')
 
       if (type === 'source') {
         const sourceHref = buildSourceHref(id)
