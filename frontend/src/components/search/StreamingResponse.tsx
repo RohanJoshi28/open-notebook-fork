@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { CheckCircle, Sparkles, Lightbulb, ChevronDown } from 'lucide-react'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { convertReferencesToMarkdownLinks, createReferenceLinkComponent } from '@/lib/utils/source-references'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
@@ -32,11 +33,12 @@ export function StreamingResponse({
   const [strategyOpen, setStrategyOpen] = useState(false)
   const [answersOpen, setAnswersOpen] = useState(false)
   const { openModal } = useModalManager()
+  const router = useRouter()
 
   const handleReferenceClick = (type: string, id: string) => {
     if (type === 'source') {
       const sourceIdWithPrefix = id.startsWith('source:') ? id : `source:${id}`
-      window.open(`/sources/${sourceIdWithPrefix}`, '_blank', 'noopener,noreferrer')
+      router.push(`/sources/${encodeURIComponent(sourceIdWithPrefix)}`)
       return
     }
 
