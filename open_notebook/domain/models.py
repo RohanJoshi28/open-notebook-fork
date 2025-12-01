@@ -39,6 +39,7 @@ class DefaultModels(RecordModel):
     # default_vision_model: Optional[str]
     default_embedding_model: Optional[str] = None
     default_tools_model: Optional[str] = None
+    default_image_model: Optional[str] = None
 
     @classmethod
     async def get_instance(cls) -> "DefaultModels":

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from 'react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useModels } from '@/lib/hooks/use-models'
+import { useModels, useModelDefaults } from '@/lib/hooks/use-models'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import Link from 'next/link'
 
@@ -14,6 +14,7 @@ interface ImageModelSelectorProps {
 
 export function ImageModelSelector({ value, onChange, disabled }: ImageModelSelectorProps) {
   const { data: models, isLoading } = useModels()
+  const { data: defaults } = useModelDefaults()
 
   const imageModels = useMemo(
     () => (models ?? []).filter((model) => model.type === 'image'),
@@ -22,9 +23,11 @@ export function ImageModelSelector({ value, onChange, disabled }: ImageModelSele
 
   useEffect(() => {
     if (!value && imageModels.length > 0) {
-      onChange(imageModels[0].id)
+      const preferredModelId = defaults?.default_image_model
+      const fallback = imageModels.find((model) => model.id === preferredModelId)?.id ?? imageModels[0].id
+      onChange(fallback)
     }
-  }, [imageModels, onChange, value])
+  }, [defaults?.default_image_model, imageModels, onChange, value])
 
   if (isLoading) {
     return (

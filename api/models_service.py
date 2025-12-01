@@ -66,6 +66,7 @@ class ModelsService:
         defaults.default_speech_to_text_model = defaults_data.get("default_speech_to_text_model")
         defaults.default_embedding_model = defaults_data.get("default_embedding_model")
         defaults.default_tools_model = defaults_data.get("default_tools_model")
+        defaults.default_image_model = defaults_data.get("default_image_model")
 
         return defaults
     
@@ -79,6 +80,7 @@ class ModelsService:
             "default_speech_to_text_model": defaults.default_speech_to_text_model,
             "default_embedding_model": defaults.default_embedding_model,
             "default_tools_model": defaults.default_tools_model,
+            "default_image_model": defaults.default_image_model,
         }
 
         response = api_client.update_default_models(**updates)
@@ -92,6 +94,7 @@ class ModelsService:
         defaults.default_speech_to_text_model = defaults_data.get("default_speech_to_text_model")
         defaults.default_embedding_model = defaults_data.get("default_embedding_model")
         defaults.default_tools_model = defaults_data.get("default_tools_model")
+        defaults.default_image_model = defaults_data.get("default_image_model")
 
         return defaults
 

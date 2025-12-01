@@ -1,6 +1,7 @@
 import asyncio
+import concurrent.futures
 import sqlite3
-from typing import Annotated, Optional
+from typing import Annotated, Callable, Coroutine, Optional, TypeVar
 
 from ai_prompter import Prompter
 from langchain_core.messages import AIMessage, SystemMessage
@@ -14,6 +15,25 @@ from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.domain.notebook import Notebook
 from open_notebook.graphs.image_generation import generate_image_message
 from open_notebook.graphs.utils import provision_langchain_model
+
+
+T = TypeVar("T")
+
+
+def _run_async(coro_factory: Callable[[], Coroutine[object, object, T]]) -> T:
+    """Run an async coroutine regardless of whether we're in an event loop."""
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running event loop, safe to run directly
+        return asyncio.run(coro_factory())
+
+    # We're already in an event loop (FastAPI/Starlette). Run the coroutine in
+    # a worker thread with its own loop to avoid nested asyncio.run() errors.
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(lambda: asyncio.run(coro_factory()))
+        return future.result()
 
 
 class ThreadState(TypedDict):
@@ -33,36 +53,13 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
             or state.get("model_override")
         )
 
-        def run_image():
-            new_loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(new_loop)
-                return new_loop.run_until_complete(
-                    generate_image_message(
-                        image_request=image_payload,
-                        context=state.get("context"),
-                        planner_model_id=planner_model_id,
-                    )
-                )
-            finally:
-                new_loop.close()
-                asyncio.set_event_loop(None)
-
-        try:
-            asyncio.get_running_loop()
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_image)
-                ai_message = future.result()
-        except RuntimeError:
-            ai_message = asyncio.run(
-                generate_image_message(
-                    image_request=image_payload,
-                    context=state.get("context"),
-                    planner_model_id=planner_model_id,
-                )
+        ai_message = _run_async(
+            lambda: generate_image_message(
+                image_request=image_payload,
+                context=state.get("context"),
+                planner_model_id=planner_model_id,
             )
+        )
 
         state["image_generation"] = None
         return {"messages": ai_message}
@@ -72,41 +69,14 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
     model_id = config.get("configurable", {}).get("model_id") or state.get(
         "model_override"
     )
-
-    # Handle async model provisioning from sync context
-    def run_in_new_loop():
-        """Run the async function in a new event loop"""
-        new_loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(new_loop)
-            return new_loop.run_until_complete(
-                provision_langchain_model(
-                    str(payload), model_id, "chat", max_tokens=8192
-                )
-            )
-        finally:
-            new_loop.close()
-            asyncio.set_event_loop(None)
-
-    try:
-        # Try to get the current event loop
-        asyncio.get_running_loop()
-        # If we're in an event loop, run in a thread with a new loop
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(run_in_new_loop)
-            model = future.result()
-    except RuntimeError:
-        # No event loop running, safe to use asyncio.run()
-        model = asyncio.run(
-            provision_langchain_model(
-                str(payload),
-                model_id,
-                "chat",
-                max_tokens=8192,
-            )
+    model = _run_async(
+        lambda: provision_langchain_model(
+            str(payload),
+            model_id,
+            "chat",
+            max_tokens=8192,
         )
+    )
 
     ai_message = model.invoke(payload)
     return {"messages": ai_message}

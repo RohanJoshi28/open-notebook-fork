@@ -91,6 +91,12 @@ ignore = [
 "app_home.py" = ["E402"]
 "pages/**/*.py" = ["E402"]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that hit external services",
+    "network: tests that require outbound network access",
+]
+
 [tool.mypy]
 # Exclude Streamlit UI pages from type checking
 [[tool.mypy.overrides]]
