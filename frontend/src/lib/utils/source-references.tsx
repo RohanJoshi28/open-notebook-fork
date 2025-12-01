@@ -3,6 +3,11 @@ import { FileText, Lightbulb, FileEdit } from 'lucide-react'
 
 export type ReferenceType = 'source' | 'note' | 'source_insight'
 
+function buildSourceHref(id: string): string {
+  const sourceIdWithPrefix = id.startsWith('source:') ? id : `source:${id}`
+  return `/sources/${encodeURIComponent(sourceIdWithPrefix)}`
+}
+
 export interface ParsedReference {
   type: ReferenceType
   id: string
@@ -285,6 +290,20 @@ export function createReferenceLinkComponent(
         type === 'source_insight' ? Lightbulb :
         FileEdit // note
 
+      if (type === 'source') {
+        const sourceHref = buildSourceHref(id)
+        return (
+          <a
+            href={sourceHref}
+            className="text-primary hover:underline inline-flex items-center gap-1"
+            {...props}
+          >
+            <IconComponent className="h-3 w-3" aria-hidden="true" />
+            {children}
+          </a>
+        )
+      }
+
       return (
         <button
           onClick={(e) => {
@@ -442,6 +461,15 @@ export function createCompactReferenceLinkComponent(
       const parts = href.substring(5).split('-') // Remove '#ref-'
       const type = parts[0] as ReferenceType
       const id = parts.slice(1).join('-') // Rejoin in case ID has dashes
+
+      if (type === 'source') {
+        const sourceHref = buildSourceHref(id)
+        return (
+          <a href={sourceHref} className="text-primary hover:underline" {...props}>
+            {children}
+          </a>
+        )
+      }
 
       return (
         <button
