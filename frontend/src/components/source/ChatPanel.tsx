@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -86,11 +87,12 @@ export function ChatPanel({
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { openModal } = useModalManager()
+  const router = useRouter()
 
   const handleReferenceClick = (type: string, id: string) => {
     if (type === 'source') {
       const sourceIdWithPrefix = id.startsWith('source:') ? id : `source:${id}`
-      window.open(`/sources/${sourceIdWithPrefix}`, '_blank', 'noopener,noreferrer')
+      router.push(`/sources/${encodeURIComponent(sourceIdWithPrefix)}`)
       return
     }
 
