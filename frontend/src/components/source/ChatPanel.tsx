@@ -401,7 +401,7 @@ export function AIMessageContent({
   return (
     <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none break-words prose-headings:font-semibold prose-a:text-blue-600 prose-a:break-all prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-p:mb-4 prose-p:leading-7 prose-li:mb-2">
       <ReactMarkdown
-        transformImageUri={transformImageUri}
+        urlTransform={transformImageUri}
         components={{
           a: LinkComponent,
           p: ({ children }) => <p className="mb-4">{children}</p>,
