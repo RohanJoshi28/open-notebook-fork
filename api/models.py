@@ -87,6 +87,7 @@ class DefaultModelsResponse(BaseModel):
     default_speech_to_text_model: Optional[str] = None
     default_embedding_model: Optional[str] = None
     default_tools_model: Optional[str] = None
+    default_image_model: Optional[str] = None
 
 
 class ProviderAvailabilityResponse(BaseModel):
