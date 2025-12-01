@@ -19,6 +19,7 @@ import { ContextIndicator } from '@/components/common/ContextIndicator'
 import { SessionManager } from '@/components/source/SessionManager'
 import { MessageActions } from '@/components/source/MessageActions'
 import { convertReferencesToCompactMarkdown, createCompactReferenceLinkComponent } from '@/lib/utils/source-references'
+import { MarkdownImage, transformImageUri } from '@/lib/markdown'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
 import { toast } from 'sonner'
 import { ChatSendOptions } from '@/lib/types/chat'
@@ -384,7 +385,7 @@ export function ChatPanel({
 }
 
 // Helper component to render AI messages with clickable references
-function AIMessageContent({
+export function AIMessageContent({
   content,
   onReferenceClick
 }: {
@@ -400,6 +401,7 @@ function AIMessageContent({
   return (
     <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none break-words prose-headings:font-semibold prose-a:text-blue-600 prose-a:break-all prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-p:mb-4 prose-p:leading-7 prose-li:mb-2">
       <ReactMarkdown
+        transformImageUri={transformImageUri}
         components={{
           a: LinkComponent,
           p: ({ children }) => <p className="mb-4">{children}</p>,
@@ -412,6 +414,7 @@ function AIMessageContent({
           li: ({ children }) => <li className="mb-1">{children}</li>,
           ul: ({ children }) => <ul className="mb-4 space-y-1">{children}</ul>,
           ol: ({ children }) => <ol className="mb-4 space-y-1">{children}</ol>,
+          img: (props) => <MarkdownImage {...props} />
         }}
       >
         {markdownWithCompactRefs}

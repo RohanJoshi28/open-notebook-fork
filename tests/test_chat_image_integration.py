@@ -1,5 +1,6 @@
+import base64
 import os
-import asyncio
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +111,14 @@ def test_generate_image_endpoint_returns_chat_message(monkeypatch, client, image
     assert "data:image" in content, "Image payload missing"
     assert image_model["name"] in content
     assert dummy_session.saved is True
+
+    data_match = re.search(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+", content)
+    assert data_match, "No inline data URI found in markdown"
+    data_uri = data_match.group(0)
+    _, base64_payload = data_uri.split(",", 1)
+    image_bytes = base64.b64decode(base64_payload)
+    assert len(image_bytes) > 2048, "Image payload too small"
+    assert image_bytes.startswith(b"\x89PNG") or image_bytes.startswith(b"\xff\xd8"), "Unexpected image format"
 
     # restore original planner in case other tests rely on it
     monkeypatch.setattr(
