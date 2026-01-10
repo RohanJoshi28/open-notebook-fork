@@ -1,10 +1,11 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from loguru import logger
 
 from api.models import NotebookCreate, NotebookResponse, NotebookUpdate
 from open_notebook.database.repository import ensure_record_id, repo_query
+from api.deps import get_current_user_id
 from open_notebook.domain.notebook import Notebook, Source
 from open_notebook.exceptions import InvalidInputError
 
@@ -15,6 +16,7 @@ router = APIRouter()
 async def get_notebooks(
     archived: Optional[bool] = Query(None, description="Filter by archived status"),
     order_by: str = Query("updated desc", description="Order by field and direction"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get all notebooks with optional filtering and ordering."""
     try:
@@ -24,10 +26,11 @@ async def get_notebooks(
             count(<-reference.in) as source_count,
             count(<-artifact.in) as note_count
             FROM notebook
+            WHERE owner = $owner
             ORDER BY {order_by}
         """
 
-        result = await repo_query(query)
+        result = await repo_query(query, {"owner": ensure_record_id(user_id)})
 
         # Filter by archived status if specified
         if archived is not None:
@@ -54,12 +57,13 @@ async def get_notebooks(
 
 
 @router.post("/notebooks", response_model=NotebookResponse)
-async def create_notebook(notebook: NotebookCreate):
+async def create_notebook(notebook: NotebookCreate, user_id: str = Depends(get_current_user_id)):
     """Create a new notebook."""
     try:
         new_notebook = Notebook(
             name=notebook.name,
             description=notebook.description,
+            owner=user_id,
         )
         await new_notebook.save()
 
@@ -83,7 +87,7 @@ async def create_notebook(notebook: NotebookCreate):
 
 
 @router.get("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def get_notebook(notebook_id: str):
+async def get_notebook(notebook_id: str, user_id: str = Depends(get_current_user_id)):
     """Get a specific notebook by ID."""
     try:
         # Query with counts for single notebook
@@ -93,7 +97,15 @@ async def get_notebook(notebook_id: str):
             count(<-artifact.in) as note_count
             FROM $notebook_id
         """
-        result = await repo_query(query, {"notebook_id": ensure_record_id(notebook_id)})
+        result = await repo_query(
+            query,
+            {"notebook_id": ensure_record_id(notebook_id)},
+        )
+
+        if result:
+            nb = result[0]
+            if str(nb.get("owner")) != str(user_id):
+                raise HTTPException(status_code=404, detail="Notebook not found")
 
         if not result:
             raise HTTPException(status_code=404, detail="Notebook not found")
@@ -119,11 +131,11 @@ async def get_notebook(notebook_id: str):
 
 
 @router.put("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
+async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate, user_id: str = Depends(get_current_user_id)):
     """Update a notebook."""
     try:
         notebook = await Notebook.get(notebook_id)
-        if not notebook:
+        if not notebook or str(notebook.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Notebook not found")
 
         # Update only provided fields
@@ -181,17 +193,17 @@ async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
 
 
 @router.post("/notebooks/{notebook_id}/sources/{source_id}")
-async def add_source_to_notebook(notebook_id: str, source_id: str):
+async def add_source_to_notebook(notebook_id: str, source_id: str, user_id: str = Depends(get_current_user_id)):
     """Add an existing source to a notebook (create the reference)."""
     try:
         # Check if notebook exists
         notebook = await Notebook.get(notebook_id)
-        if not notebook:
+        if not notebook or str(notebook.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Notebook not found")
 
         # Check if source exists
         source = await Source.get(source_id)
-        if not source:
+        if not source or str(source.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Source not found")
 
         # Check if reference already exists (idempotency)

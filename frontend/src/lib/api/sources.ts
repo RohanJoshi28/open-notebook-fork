@@ -22,6 +22,38 @@ export const sourcesApi = {
     return response.data
   },
 
+  /**
+   * Fetch all sources by paging through the API (max 100 per request).
+   * This avoids the default limit=50 so users can see >50 sources.
+   */
+  listAll: async (params?: {
+    notebook_id?: string
+    sort_by?: 'created' | 'updated'
+    sort_order?: 'asc' | 'desc'
+  }) => {
+    const pageSize = 100
+    let offset = 0
+    const all: SourceListResponse[] = []
+
+    // Paginate until we get fewer than a full page
+    // Guard with a hard upper bound to avoid accidental infinite loops
+    const maxPages = 200 // 200 * 100 = 20,000 sources
+    for (let i = 0; i < maxPages; i++) {
+      const page = await sourcesApi.list({
+        ...params,
+        limit: pageSize,
+        offset,
+      })
+
+      all.push(...page)
+
+      if (page.length < pageSize) break
+      offset += pageSize
+    }
+
+    return all
+  },
+
   get: async (id: string) => {
     const response = await apiClient.get<SourceDetailResponse>(`/sources/${id}`)
     return response.data

@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from fastapi import Request, Response
+from fastapi.routing import APIRoute
 
-from api.auth import PasswordAuthMiddleware
+from api.auth import JWTAuthMiddleware
 from api.routers import (
     auth,
     chat,
@@ -42,6 +45,9 @@ async def lifespan(app: FastAPI):
     Lifespan event handler for the FastAPI application.
     Runs database migrations automatically on startup.
     """
+    if os.environ.get("SKIP_MIGRATIONS_FOR_TESTS"):
+        yield
+        return
     # Startup: Run database migrations
     logger.info("Starting API initialization...")
 
@@ -79,9 +85,45 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add password authentication middleware first
-# Exclude /api/auth/status and /api/config from authentication
-app.add_middleware(PasswordAuthMiddleware, excluded_paths=["/", "/health", "/docs", "/openapi.json", "/redoc", "/api/auth/status", "/api/config"])
+
+class LoggingRoute(APIRoute):
+    """
+    Route wrapper that emits ultra‑verbose per‑endpoint diagnostics.
+    This complements the HTTP middleware by logging after dependency
+    resolution and before the underlying handler returns.
+    """
+
+    def get_route_handler(self):
+        original_route_handler = super().get_route_handler()
+
+        async def logging_route_handler(request: Request):
+            logger.debug(
+                "ROUTE START path=%s method=%s user=%s client=%s route_name=%s",
+                request.url.path,
+                request.method,
+                getattr(request.state, "user_id", None),
+                getattr(request.client, "host", None),
+                self.name,
+            )
+            response: Response = await original_route_handler(request)
+            logger.debug(
+                "ROUTE END path=%s method=%s status=%s headers=%s",
+                request.url.path,
+                request.method,
+                getattr(response, "status_code", None),
+                dict(response.headers),
+            )
+            return response
+
+        return logging_route_handler
+
+
+# Apply the logging route to all routers
+app.router.route_class = LoggingRoute
+
+# Add JWT authentication middleware first
+# Exclude auth + config endpoints
+app.add_middleware(JWTAuthMiddleware, excluded_paths=["/", "/health", "/docs", "/openapi.json", "/redoc", "/api/auth/status", "/api/auth/login/google", "/api/config"])
 
 # Add CORS middleware last (so it processes first)
 app.add_middleware(
@@ -112,6 +154,33 @@ app.include_router(episode_profiles.router, prefix="/api", tags=["episode-profil
 app.include_router(speaker_profiles.router, prefix="/api", tags=["speaker-profiles"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(source_chat.router, prefix="/api", tags=["source-chat"])
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    import time
+    start_time = time.time()
+    try:
+        body = await request.body()
+    except Exception:
+        body = b""
+    logger.info(
+        "HTTP START %s %s headers=%s body=%s",
+        request.method,
+        request.url.path,
+        dict(request.headers),
+        body[:2000],
+    )
+    response: Response = await call_next(request)
+    duration = (time.time() - start_time) * 1000
+    logger.info(
+        "HTTP END %s %s status=%s duration_ms=%.2f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration,
+    )
+    return response
 
 
 @app.get("/")

@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypeVar, Union
@@ -7,6 +8,10 @@ from loguru import logger
 from surrealdb import AsyncSurreal, RecordID  # type: ignore
 
 T = TypeVar("T", Dict[str, Any], List[Dict[str, Any]])
+
+# Reuse a single Surreal client to avoid repeated websocket handshakes (which can timeout on slow links)
+_db_client: Optional[AsyncSurreal] = None
+_db_initialized: bool = False
 
 
 def get_database_url():
@@ -24,6 +29,30 @@ def get_database_url():
 def get_database_password():
     """Get password with backward compatibility"""
     return os.getenv("SURREAL_PASSWORD") or os.getenv("SURREAL_PASS")
+
+
+async def _get_client() -> AsyncSurreal:
+    """
+    Get (and lazily initialize) a shared AsyncSurreal client.
+    Keeping a single connection dramatically reduces websocket handshake failures/timeouts.
+    """
+    global _db_client, _db_initialized
+    if _db_client is None:
+        _db_client = AsyncSurreal(get_database_url())
+
+    if not _db_initialized:
+        await _db_client.signin(
+            {
+                "username": os.environ.get("SURREAL_USER"),
+                "password": get_database_password(),
+            }
+        )
+        await _db_client.use(
+            os.environ.get("SURREAL_NAMESPACE"), os.environ.get("SURREAL_DATABASE")
+        )
+        _db_initialized = True
+
+    return _db_client
 
 
 def parse_record_ids(obj: Any) -> Any:
@@ -44,22 +73,27 @@ def ensure_record_id(value: Union[str, RecordID]) -> RecordID:
     return RecordID.parse(value)
 
 
+def _coerce_owner(data: Dict[str, Any]) -> None:
+    """Convert 'owner' string IDs to Surreal RecordID objects when present."""
+    if "owner" in data and isinstance(data["owner"], str) and data["owner"]:
+        try:
+            data["owner"] = ensure_record_id(data["owner"])
+        except Exception:
+            # If parsing fails, leave as-is; Surreal will raise a clear error
+            pass
+
+
 @asynccontextmanager
 async def db_connection():
-    db = AsyncSurreal(get_database_url())
-    await db.signin(
-        {
-            "username": os.environ.get("SURREAL_USER"),
-            "password": get_database_password(),
-        }
-    )
-    await db.use(
-        os.environ.get("SURREAL_NAMESPACE"), os.environ.get("SURREAL_DATABASE")
-    )
+    """
+    Shared connection context. We don't close the connection to avoid repeated handshakes.
+    """
+    db = await _get_client()
     try:
         yield db
     finally:
-        await db.close()
+        # Keep connection open for reuse
+        pass
 
 
 async def repo_query(
@@ -68,18 +102,50 @@ async def repo_query(
     """Execute a SurrealQL query and return the results"""
 
     async with db_connection() as connection:
+        start = time.time()
         try:
             result = parse_record_ids(await connection.query(query_str, vars))
             if isinstance(result, str):
                 raise RuntimeError(result)
+            duration = (time.time() - start) * 1000
+            logger.debug(
+                "DB OK %.2f ms | %s | params=%s | rows=%s",
+                duration,
+                query_str.replace("\n", " ")[:500],
+                vars,
+                len(result) if isinstance(result, list) else "n/a",
+            )
             return result
         except RuntimeError as e:
             # RuntimeError is raised for retriable transaction conflicts - log without stack trace
-            logger.error(str(e))
+            duration = (time.time() - start) * 1000
+            logger.error("DB RETRYABLE %.2f ms | %s | params=%s | err=%s", duration, query_str[:200], vars, str(e))
             raise
         except Exception as e:
-            logger.exception(e)
-            raise
+            # If the shared connection died, reset and retry once
+            global _db_client, _db_initialized
+            duration = (time.time() - start) * 1000
+            logger.warning("DB ERROR %.2f ms (will reset) | %s | params=%s | err=%s", duration, query_str[:200], vars, str(e))
+            _db_client = None
+            _db_initialized = False
+            try:
+                start2 = time.time()
+                conn = await _get_client()
+                result = parse_record_ids(await conn.query(query_str, vars))
+                if isinstance(result, str):
+                    raise RuntimeError(result)
+                duration2 = (time.time() - start2) * 1000
+                logger.debug(
+                    "DB OK after reset %.2f ms | %s | params=%s | rows=%s",
+                    duration2,
+                    query_str.replace("\n", " ")[:500],
+                    vars,
+                    len(result) if isinstance(result, list) else "n/a",
+                )
+                return result
+            except Exception:
+                logger.exception(e)
+                raise
 
 
 async def repo_create(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -88,6 +154,7 @@ async def repo_create(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     data.pop("id", None)
     data["created"] = datetime.now(timezone.utc)
     data["updated"] = datetime.now(timezone.utc)
+    _coerce_owner(data)
     try:
         async with db_connection() as connection:
             return parse_record_ids(await connection.insert(table, data))
@@ -121,6 +188,7 @@ async def repo_upsert(
 ) -> List[Dict[str, Any]]:
     """Create or update a record in the specified table"""
     data.pop("id", None)
+    _coerce_owner(data)
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
     query = f"UPSERT {id if id else table} MERGE $data;"
@@ -138,6 +206,7 @@ async def repo_update(
         else:
             record_id = f"{table}:{id}"
         data.pop("id", None)
+        _coerce_owner(data)
         if "created" in data and isinstance(data["created"], str):
             data["created"] = datetime.fromisoformat(data["created"])
         data["updated"] = datetime.now(timezone.utc)

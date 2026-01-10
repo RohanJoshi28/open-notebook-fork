@@ -64,6 +64,7 @@ async function fetchConfig(): Promise<AppConfig> {
   // This allows API_URL to be set at runtime (not baked into build)
   // Note: Endpoint is at /config (not /api/config) to avoid reverse proxy conflicts
   let runtimeApiUrl: string | null = null
+  let runtimeGoogleClientId: string | null = null
   try {
     console.log('🔧 [Config] Attempting to fetch runtime config from /config endpoint...')
     const runtimeResponse = await fetch('/config', {
@@ -72,6 +73,7 @@ async function fetchConfig(): Promise<AppConfig> {
     if (runtimeResponse.ok) {
       const runtimeData = await runtimeResponse.json()
       runtimeApiUrl = runtimeData.apiUrl
+      runtimeGoogleClientId = runtimeData.googleClientId ?? null
       console.log('✅ [Config] Runtime API URL from server:', runtimeApiUrl)
     } else {
       console.log('⚠️ [Config] Runtime config endpoint returned status:', runtimeResponse.status)
@@ -125,6 +127,7 @@ async function fetchConfig(): Promise<AppConfig> {
         latestVersion: data.latestVersion || null,
         hasUpdate: data.hasUpdate || false,
         dbStatus: data.dbStatus, // Can be undefined for old backends
+        googleClientId: runtimeGoogleClientId ?? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "422184430710-gkq59modau3sgpd3f734c020l1qo9eqv.apps.googleusercontent.com",
       }
       console.log('✅ [Config] Successfully loaded API config:', config)
       return config
@@ -133,8 +136,18 @@ async function fetchConfig(): Promise<AppConfig> {
       throw new Error(`API config endpoint returned status ${response.status}`)
     }
   } catch (error) {
-    // Don't log error here - ConnectionGuard will display it with proper UI
-    throw error
+    // Degrade gracefully so login UI (including Google button) can still render
+    console.warn('⚠️ [Config] Backend config fetch failed, using fallback config:', error)
+    config = {
+      apiUrl: baseUrl,
+      version: 'unknown',
+      buildTime: BUILD_TIME,
+      latestVersion: null,
+      hasUpdate: false,
+      dbStatus: 'offline',
+      googleClientId: runtimeGoogleClientId ?? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "422184430710-gkq59modau3sgpd3f734c020l1qo9eqv.apps.googleusercontent.com",
+    }
+    return config
   }
 }
 

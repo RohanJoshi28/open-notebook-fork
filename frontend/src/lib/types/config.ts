@@ -21,6 +21,7 @@ export interface AppConfig {
   latestVersion?: string | null
   hasUpdate?: boolean
   dbStatus?: "online" | "offline"
+  googleClientId?: string | null
 }
 
 /**

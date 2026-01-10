@@ -105,18 +105,16 @@ async def check_database_health() -> dict:
     Returns:
         dict with 'status' ("online" | "offline") and optional 'error'
     """
+    timeout_s = 3.0  # keep the endpoint fast for UI; Surreal should respond quickly to RETURN 1
     try:
-        # 2-second timeout for database health check
-        result = await asyncio.wait_for(
-            repo_query("RETURN 1"),
-            timeout=2.0
-        )
+        result = await asyncio.wait_for(repo_query("RETURN 1"), timeout=timeout_s)
         if result:
             return {"status": "online"}
         return {"status": "offline", "error": "Empty result"}
     except asyncio.TimeoutError:
-        logger.warning("Database health check timed out after 2 seconds")
-        return {"status": "offline", "error": "Health check timeout"}
+        msg = f"Health check timed out after {timeout_s} seconds"
+        logger.warning(msg)
+        return {"status": "offline", "error": msg}
     except Exception as e:
         logger.warning(f"Database health check failed: {e}")
         return {"status": "offline", "error": str(e)}

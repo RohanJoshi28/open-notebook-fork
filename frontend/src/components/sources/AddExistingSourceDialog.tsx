@@ -53,10 +53,8 @@ export function AddExistingSourceDialog({
   const loadAllSources = useCallback(async () => {
     try {
       setIsSearching(true)
-      // Use sources API directly to get all sources (max 100 per API limit)
-      const sources = await sourcesApi.list({
-        limit: 100,
-        offset: 0,
+      // Fetch all sources via paginated API so we don't stop at 50/100
+      const sources = await sourcesApi.listAll({
         sort_by: 'created',
         sort_order: 'desc',
       })

@@ -12,6 +12,7 @@ class Transformation(ObjectModel):
     description: str
     prompt: str
     apply_default: bool
+    owner: Optional[str] = None
 
 
 class DefaultPrompts(RecordModel):

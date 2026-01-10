@@ -23,15 +23,9 @@ class AsyncMigration:
     def from_file(cls, file_path: str) -> "AsyncMigration":
         """Create migration from SQL file."""
         with open(file_path, "r", encoding="utf-8") as file:
-            raw_content = file.read()
-            # Clean up SQL content
-            lines = []
-            for line in raw_content.split("\n"):
-                line = line.strip()
-                if line and not line.startswith("--"):
-                    lines.append(line)
-            sql = " ".join(lines)
-            return cls(sql)
+            # Keep the file content as-is so SurrealQL strings and formatting remain valid.
+            # Surreal supports SQL-style comments, so we don't need to strip them.
+            return cls(file.read())
 
     async def run(self, bump: bool = True) -> None:
         """Run the migration."""
@@ -105,6 +99,8 @@ class AsyncMigrationManager:
             AsyncMigration.from_file("migrations/7.surrealql"),
             AsyncMigration.from_file("migrations/8.surrealql"),
             AsyncMigration.from_file("migrations/9.surrealql"),
+            AsyncMigration.from_file("migrations/10.surrealql"),
+            AsyncMigration.from_file("migrations/11.surrealql"),
         ]
         self.down_migrations = [
             AsyncMigration.from_file("migrations/1_down.surrealql"),
@@ -116,6 +112,8 @@ class AsyncMigrationManager:
             AsyncMigration.from_file("migrations/7_down.surrealql"),
             AsyncMigration.from_file("migrations/8_down.surrealql"),
             AsyncMigration.from_file("migrations/9_down.surrealql"),
+            AsyncMigration.from_file("migrations/10_down.surrealql"),
+            AsyncMigration.from_file("migrations/11_down.surrealql"),
         ]
         self.runner = AsyncMigrationRunner(
             up_migrations=self.up_migrations,

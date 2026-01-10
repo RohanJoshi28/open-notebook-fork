@@ -1,7 +1,7 @@
 import json
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
@@ -10,12 +10,13 @@ from open_notebook.domain.models import Model, model_manager
 from open_notebook.domain.notebook import text_search, vector_search
 from open_notebook.exceptions import DatabaseOperationError, InvalidInputError
 from open_notebook.graphs.ask import graph as ask_graph
+from api.deps import get_current_user_id
 
 router = APIRouter()
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search_knowledge_base(search_request: SearchRequest):
+async def search_knowledge_base(search_request: SearchRequest, user_id: str = Depends(get_current_user_id)):
     """Search the knowledge base using text or vector search."""
     try:
         if search_request.type == "vector":
@@ -32,6 +33,7 @@ async def search_knowledge_base(search_request: SearchRequest):
                 source=search_request.search_sources,
                 note=search_request.search_notes,
                 minimum_score=search_request.minimum_score,
+                owner=user_id,
             )
         else:
             # Text search
@@ -40,6 +42,7 @@ async def search_knowledge_base(search_request: SearchRequest):
                 results=search_request.limit,
                 source=search_request.search_sources,
                 note=search_request.search_notes,
+                owner=user_id,
             )
 
         return SearchResponse(
@@ -59,7 +62,11 @@ async def search_knowledge_base(search_request: SearchRequest):
 
 
 async def stream_ask_response(
-    question: str, strategy_model: Model, answer_model: Model, final_answer_model: Model
+    question: str,
+    strategy_model: Model,
+    answer_model: Model,
+    final_answer_model: Model,
+    user_id: str,
 ) -> AsyncGenerator[str, None]:
     """Stream the ask response as Server-Sent Events."""
     try:
@@ -72,6 +79,7 @@ async def stream_ask_response(
                     strategy_model=strategy_model.id,
                     answer_model=answer_model.id,
                     final_answer_model=final_answer_model.id,
+                    owner=user_id,
                 )
             ),
             stream_mode="updates",
@@ -108,7 +116,7 @@ async def stream_ask_response(
 
 
 @router.post("/search/ask")
-async def ask_knowledge_base(ask_request: AskRequest):
+async def ask_knowledge_base(ask_request: AskRequest, user_id: str = Depends(get_current_user_id)):
     """Ask the knowledge base a question using AI models."""
     try:
         # Validate models exist
@@ -142,7 +150,11 @@ async def ask_knowledge_base(ask_request: AskRequest):
         # For streaming response
         return StreamingResponse(
             stream_ask_response(
-                ask_request.question, strategy_model, answer_model, final_answer_model
+                ask_request.question,
+                strategy_model,
+                answer_model,
+                final_answer_model,
+                user_id,
             ),
             media_type="text/plain",
         )
@@ -155,7 +167,7 @@ async def ask_knowledge_base(ask_request: AskRequest):
 
 
 @router.post("/search/ask/simple", response_model=AskResponse)
-async def ask_knowledge_base_simple(ask_request: AskRequest):
+async def ask_knowledge_base_simple(ask_request: AskRequest, user_id: str = Depends(get_current_user_id)):
     """Ask the knowledge base a question and return a simple response (non-streaming)."""
     try:
         # Validate models exist
@@ -195,6 +207,7 @@ async def ask_knowledge_base_simple(ask_request: AskRequest):
                     strategy_model=strategy_model.id,
                     answer_model=answer_model.id,
                     final_answer_model=final_answer_model.id,
+                    owner=user_id,
                 )
             ),
             stream_mode="updates",

@@ -1,18 +1,20 @@
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from loguru import logger
 
 from api.models import NoteCreate, NoteResponse, NoteUpdate
 from open_notebook.domain.notebook import Note
 from open_notebook.exceptions import InvalidInputError
+from api.deps import get_current_user_id
 
 router = APIRouter()
 
 
 @router.get("/notes", response_model=List[NoteResponse])
 async def get_notes(
-    notebook_id: Optional[str] = Query(None, description="Filter by notebook ID")
+    notebook_id: Optional[str] = Query(None, description="Filter by notebook ID"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get all notes with optional notebook filtering."""
     try:
@@ -20,12 +22,12 @@ async def get_notes(
             # Get notes for a specific notebook
             from open_notebook.domain.notebook import Notebook
             notebook = await Notebook.get(notebook_id)
-            if not notebook:
+            if not notebook or str(notebook.owner) != str(user_id):
                 raise HTTPException(status_code=404, detail="Notebook not found")
-            notes = await notebook.get_notes()
+            notes = [n for n in await notebook.get_notes() if str(n.owner) == str(user_id)]
         else:
             # Get all notes
-            notes = await Note.get_all(order_by="updated desc")
+            notes = [n for n in await Note.get_all(order_by="updated desc") if str(n.owner) == str(user_id)]
         
         return [
             NoteResponse(
@@ -46,7 +48,7 @@ async def get_notes(
 
 
 @router.post("/notes", response_model=NoteResponse)
-async def create_note(note_data: NoteCreate):
+async def create_note(note_data: NoteCreate, user_id: str = Depends(get_current_user_id)):
     """Create a new note."""
     try:
         # Auto-generate title if not provided and it's an AI note
@@ -73,6 +75,7 @@ async def create_note(note_data: NoteCreate):
             title=title,
             content=note_data.content,
             note_type=note_type,
+            owner=user_id,
         )
         await new_note.save()
         
@@ -80,7 +83,7 @@ async def create_note(note_data: NoteCreate):
         if note_data.notebook_id:
             from open_notebook.domain.notebook import Notebook
             notebook = await Notebook.get(note_data.notebook_id)
-            if not notebook:
+            if not notebook or str(notebook.owner) != str(user_id):
                 raise HTTPException(status_code=404, detail="Notebook not found")
             await new_note.add_to_notebook(note_data.notebook_id)
         
@@ -102,11 +105,11 @@ async def create_note(note_data: NoteCreate):
 
 
 @router.get("/notes/{note_id}", response_model=NoteResponse)
-async def get_note(note_id: str):
+async def get_note(note_id: str, user_id: str = Depends(get_current_user_id)):
     """Get a specific note by ID."""
     try:
         note = await Note.get(note_id)
-        if not note:
+        if not note or str(note.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Note not found")
         
         return NoteResponse(
@@ -125,11 +128,11 @@ async def get_note(note_id: str):
 
 
 @router.put("/notes/{note_id}", response_model=NoteResponse)
-async def update_note(note_id: str, note_update: NoteUpdate):
+async def update_note(note_id: str, note_update: NoteUpdate, user_id: str = Depends(get_current_user_id)):
     """Update a note."""
     try:
         note = await Note.get(note_id)
-        if not note:
+        if not note or str(note.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Note not found")
         
         # Update only provided fields
@@ -163,11 +166,11 @@ async def update_note(note_id: str, note_update: NoteUpdate):
 
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: str):
+async def delete_note(note_id: str, user_id: str = Depends(get_current_user_id)):
     """Delete a note."""
     try:
         note = await Note.get(note_id)
-        if not note:
+        if not note or str(note.owner) != str(user_id):
             raise HTTPException(status_code=404, detail="Note not found")
         
         await note.delete()

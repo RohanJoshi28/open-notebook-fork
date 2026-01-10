@@ -68,7 +68,7 @@ class DefaultModels(RecordModel):
 
 class ModelManager:
     def __init__(self):
-        pass  # No caching needed
+        logger.debug("ModelManager initialized (no caching)")
 
     async def get_model(self, model_id: str, **kwargs) -> Optional[ModelType]:
         """Get a model by ID. Esperanto will cache the actual model instance."""
@@ -88,6 +88,13 @@ class ModelManager:
         ]:
             raise ValueError(f"Invalid model type: {model.type}")
 
+        logger.debug(
+            "ModelManager.get_model loading id=%s provider=%s type=%s kwargs_keys=%s",
+            model_id,
+            model.provider,
+            model.type,
+            list(kwargs.keys()),
+        )
         # Create model based on type (Esperanto will cache the instance)
         if model.type == "language":
             return AIFactory.create_language(
@@ -121,6 +128,14 @@ class ModelManager:
         defaults = await DefaultModels.get_instance()
         if not defaults:
             raise RuntimeError("Failed to load default models configuration")
+        logger.debug(
+            "ModelManager.get_defaults chat=%s transform=%s embed=%s tools=%s image=%s",
+            defaults.default_chat_model,
+            defaults.default_transformation_model,
+            defaults.default_embedding_model,
+            defaults.default_tools_model,
+            defaults.default_image_model,
+        )
         return defaults
 
     async def get_speech_to_text(self, **kwargs) -> Optional[SpeechToTextModel]:
@@ -191,8 +206,15 @@ class ModelManager:
             model_id = defaults.large_context_model
 
         if not model_id:
+            logger.debug("ModelManager.get_default_model no default for type=%s", model_type)
             return None
 
+        logger.debug(
+            "ModelManager.get_default_model type=%s resolves_to=%s kwargs_keys=%s",
+            model_type,
+            model_id,
+            list(kwargs.keys()),
+        )
         return await self.get_model(model_id, **kwargs)
 
 

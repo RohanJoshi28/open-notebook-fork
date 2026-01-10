@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from loguru import logger
 
 from api.models import SettingsResponse, SettingsUpdate
 from open_notebook.domain.content_settings import ContentSettings
 from open_notebook.exceptions import InvalidInputError
+from api.deps import require_admin
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ async def get_settings():
 
 
 @router.put("/settings", response_model=SettingsResponse)
-async def update_settings(settings_update: SettingsUpdate):
+async def update_settings(settings_update: SettingsUpdate, request: Request, admin_email=Depends(require_admin)):
     """Update application settings."""
     try:
         settings: ContentSettings = await ContentSettings.get_instance()  # type: ignore[assignment]

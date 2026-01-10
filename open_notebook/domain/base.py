@@ -45,6 +45,11 @@ class ObjectModel(BaseModel):
             else:
                 query = f"SELECT * FROM {table_name}"
 
+            logger.debug(
+                "ObjectModel.get_all start table=%s order_by=%s",
+                table_name,
+                order_by,
+            )
             result = await repo_query(query)
             objects = []
             for obj in result:
@@ -53,6 +58,11 @@ class ObjectModel(BaseModel):
                 except Exception as e:
                     logger.critical(f"Error creating object: {str(e)}")
 
+            logger.debug(
+                "ObjectModel.get_all complete table=%s count=%s",
+                table_name,
+                len(objects),
+            )
             return objects
         except Exception as e:
             logger.error(f"Error fetching all {cls.table_name}: {str(e)}")
@@ -66,6 +76,7 @@ class ObjectModel(BaseModel):
         try:
             # Get the table name from the ID (everything before the first colon)
             table_name = id.split(":")[0] if ":" in id else id
+            logger.debug("ObjectModel.get start id=%s table_guess=%s", id, table_name)
 
             # If we're calling from a specific subclass and IDs match, use that class
             if cls.table_name and cls.table_name == table_name:
@@ -79,7 +90,11 @@ class ObjectModel(BaseModel):
 
             result = await repo_query("SELECT * FROM $id", {"id": ensure_record_id(id)})
             if result:
-                return target_class(**result[0])
+                instance = target_class(**result[0])
+                logger.debug(
+                    "ObjectModel.get success id=%s table=%s", id, target_class.table_name
+                )
+                return instance
             else:
                 raise NotFoundError(f"{table_name} with id {id} not found")
         except Exception as e:
@@ -120,6 +135,11 @@ class ObjectModel(BaseModel):
             if self.needs_embedding():
                 embedding_content = self.get_embedding_content()
                 if embedding_content:
+                    logger.debug(
+                        "ObjectModel.save embedding start table=%s id=%s",
+                        self.__class__.table_name,
+                        self.id,
+                    )
                     EMBEDDING_MODEL = await model_manager.get_embedding_model()
                     if not EMBEDDING_MODEL:
                         logger.warning(
@@ -134,6 +154,11 @@ class ObjectModel(BaseModel):
             repo_result: Union[List[Dict[str, Any]], Dict[str, Any]]
             if self.id is None:
                 data["created"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                logger.debug(
+                    "ObjectModel.save creating new record table=%s data_keys=%s",
+                    self.__class__.table_name,
+                    list(data.keys()),
+                )
                 repo_result = await repo_create(self.__class__.table_name, data)
             else:
                 data["created"] = (
@@ -141,7 +166,12 @@ class ObjectModel(BaseModel):
                     if isinstance(self.created, datetime)
                     else self.created
                 )
-                logger.debug(f"Updating record with id {self.id}")
+                logger.debug(
+                    "ObjectModel.save updating record table=%s id=%s data_keys=%s",
+                    self.__class__.table_name,
+                    self.id,
+                    list(data.keys()),
+                )
                 repo_result = await repo_update(
                     self.__class__.table_name, self.id, data
                 )
@@ -154,6 +184,12 @@ class ObjectModel(BaseModel):
                         setattr(self, key, type(getattr(self, key))(**value))
                     else:
                         setattr(self, key, value)
+            logger.debug(
+                "ObjectModel.save complete table=%s id=%s created=%s",
+                self.__class__.table_name,
+                self.id,
+                self.created,
+            )
 
         except ValidationError as e:
             logger.error(f"Validation failed: {e}")
@@ -173,7 +209,11 @@ class ObjectModel(BaseModel):
         if self.id is None:
             raise InvalidInputError("Cannot delete object without an ID")
         try:
-            logger.debug(f"Deleting record with id {self.id}")
+            logger.debug(
+                "ObjectModel.delete start table=%s id=%s",
+                self.__class__.table_name,
+                self.id,
+            )
             return await repo_delete(self.id)
         except Exception as e:
             logger.error(
@@ -189,6 +229,14 @@ class ObjectModel(BaseModel):
         if not relationship or not target_id or not self.id:
             raise InvalidInputError("Relationship and target ID must be provided")
         try:
+            logger.debug(
+                "ObjectModel.relate start table=%s id=%s rel=%s target=%s data_keys=%s",
+                self.__class__.table_name,
+                self.id,
+                relationship,
+                target_id,
+                list(data.keys()) if data else [],
+            )
             return await repo_relate(
                 source=self.id, relationship=relationship, target=target_id, data=data
             )

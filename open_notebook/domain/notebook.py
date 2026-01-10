@@ -18,6 +18,7 @@ class Notebook(ObjectModel):
     name: str
     description: str
     archived: Optional[bool] = False
+    owner: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -94,6 +95,7 @@ class Asset(BaseModel):
 class SourceEmbedding(ObjectModel):
     table_name: ClassVar[str] = "source_embedding"
     content: str
+    owner: Optional[str] = None
 
     async def get_source(self) -> "Source":
         try:
@@ -114,6 +116,7 @@ class SourceInsight(ObjectModel):
     table_name: ClassVar[str] = "source_insight"
     insight_type: str
     content: str
+    owner: Optional[str] = None
 
     async def get_source(self) -> "Source":
         try:
@@ -150,6 +153,7 @@ class Source(ObjectModel):
     command: Optional[Union[str, RecordID]] = Field(
         default=None, description="Link to surreal-commands processing job"
     )
+    owner: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -309,7 +313,7 @@ class Source(ObjectModel):
             logger.exception(e)
             raise DatabaseOperationError(e)
 
-    async def add_insight(self, insight_type: str, content: str) -> Any:
+    async def add_insight(self, insight_type: str, content: str, owner: Optional[str] = None) -> Any:
         EMBEDDING_MODEL = await model_manager.get_embedding_model()
         if not EMBEDDING_MODEL:
             logger.warning("No embedding model found. Insight will not be searchable.")
@@ -317,15 +321,52 @@ class Source(ObjectModel):
         if not insight_type or not content:
             raise InvalidInputError("Insight type and content must be provided")
         try:
+            # Strong idempotency: keep a single insight per (source, type). Update instead of duplicating.
+            existing = await repo_query(
+                """
+                SELECT * FROM source_insight 
+                WHERE source = $source_id 
+                  AND insight_type = $insight_type 
+                LIMIT 1
+                """,
+                {
+                    "source_id": ensure_record_id(self.id),
+                    "insight_type": insight_type,
+                },
+            )
+
             embedding = (
                 (await EMBEDDING_MODEL.aembed([content]))[0] if EMBEDDING_MODEL else []
             )
+
+            if existing:
+                existing_id = existing[0]["id"]
+                logger.info(
+                    "Updating existing insight instead of creating duplicate: source=%s type=%s insight_id=%s",
+                    self.id,
+                    insight_type,
+                    existing_id,
+                )
+                await repo_query(
+                    """
+                    UPDATE $id SET content = $content, embedding = $embedding, owner = $owner;
+                    """,
+                    {
+                        "id": existing_id,
+                        "content": content,
+                        "embedding": embedding,
+                        "owner": ensure_record_id(owner) if owner else None,
+                    },
+                )
+                return await repo_query("SELECT * FROM source_insight WHERE id=$id", {"id": existing_id})
+
             return await repo_query(
                 """
                 CREATE source_insight CONTENT {
                         "source": $source_id,
                         "insight_type": $insight_type,
                         "content": $content,
+                        "owner": $owner,
                         "embedding": $embedding,
                 };""",
                 {
@@ -333,6 +374,7 @@ class Source(ObjectModel):
                     "insight_type": insight_type,
                     "content": content,
                     "embedding": embedding,
+                    "owner": ensure_record_id(owner) if owner else None,
                 },
             )
         except Exception as e:
@@ -355,6 +397,7 @@ class Note(ObjectModel):
     title: Optional[str] = None
     note_type: Optional[Literal["human", "ai"]] = None
     content: Optional[str] = None
+    owner: Optional[str] = None
 
     @field_validator("content")
     @classmethod
@@ -391,6 +434,7 @@ class ChatSession(ObjectModel):
     table_name: ClassVar[str] = "chat_session"
     title: Optional[str] = None
     model_override: Optional[str] = None
+    owner: Optional[str] = None
 
     async def relate_to_notebook(self, notebook_id: str) -> Any:
         if not notebook_id:
@@ -404,17 +448,40 @@ class ChatSession(ObjectModel):
 
 
 async def text_search(
-    keyword: str, results: int, source: bool = True, note: bool = True
+    keyword: str,
+    results: int,
+    source: bool = True,
+    note: bool = True,
+    owner: Optional[str] = None,
 ):
     if not keyword:
         raise InvalidInputError("Search keyword cannot be empty")
     try:
+        logger.debug(
+            "text_search start keyword=%s results=%s source=%s note=%s owner=%s",
+            keyword,
+            results,
+            source,
+            note,
+            owner,
+        )
         search_results = await repo_query(
             """
             select *
-            from fn::text_search($keyword, $results, $source, $note)
+            from fn::text_search($keyword, $results, $source, $note, $owner)
             """,
-            {"keyword": keyword, "results": results, "source": source, "note": note},
+            {
+                "keyword": keyword,
+                "results": results,
+                "source": source,
+                "note": note,
+                "owner": ensure_record_id(owner) if owner else None,
+            },
+        )
+        logger.debug(
+            "text_search complete keyword=%s count=%s",
+            keyword,
+            len(search_results) if search_results else 0,
         )
         return search_results
     except Exception as e:
@@ -429,17 +496,27 @@ async def vector_search(
     source: bool = True,
     note: bool = True,
     minimum_score=0.2,
+    owner: Optional[str] = None,
 ):
     if not keyword:
         raise InvalidInputError("Search keyword cannot be empty")
     try:
+        logger.debug(
+            "vector_search start keyword=%s results=%s source=%s note=%s min_score=%s owner=%s",
+            keyword,
+            results,
+            source,
+            note,
+            minimum_score,
+            owner,
+        )
         EMBEDDING_MODEL = await model_manager.get_embedding_model()
         if EMBEDDING_MODEL is None:
             raise ValueError("EMBEDDING_MODEL is not configured")
         embed = (await EMBEDDING_MODEL.aembed([keyword]))[0]
         search_results = await repo_query(
             """
-            SELECT * FROM fn::vector_search($embed, $results, $source, $note, $minimum_score);
+            SELECT * FROM fn::vector_search($embed, $results, $source, $note, $minimum_score, $owner);
             """,
             {
                 "embed": embed,
@@ -447,7 +524,13 @@ async def vector_search(
                 "source": source,
                 "note": note,
                 "minimum_score": minimum_score,
+                "owner": ensure_record_id(owner) if owner else None,
             },
+        )
+        logger.debug(
+            "vector_search complete keyword=%s count=%s",
+            keyword,
+            len(search_results) if search_results else 0,
         )
         return search_results
     except Exception as e:

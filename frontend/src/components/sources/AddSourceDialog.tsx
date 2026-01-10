@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -23,8 +23,7 @@ import { useTransformations } from '@/lib/hooks/use-transformations'
 import { useCreateSource } from '@/lib/hooks/use-sources'
 import { useSettings } from '@/lib/hooks/use-settings'
 import { CreateSourceRequest } from '@/lib/types/api'
-
-const MAX_BATCH_SIZE = 50
+import apiClient from '@/lib/api/client'
 
 const createSourceSchema = z.object({
   type: z.enum(['link', 'upload', 'text']),
@@ -95,6 +94,12 @@ export function AddSourceDialog({
   onOpenChange, 
   defaultNotebookId 
 }: AddSourceDialogProps) {
+  const DEBUG_LOGS =
+    process.env.NEXT_PUBLIC_DEBUG_LOGS === '1' || process.env.NODE_ENV === 'development'
+  const log = useCallback((...args: unknown[]) => {
+    if (DEBUG_LOGS) console.debug('[AddSourceDialog]', ...args)
+  }, [DEBUG_LOGS])
+
   // Simplified state management
   const [currentStep, setCurrentStep] = useState(1)
   const [processing, setProcessing] = useState(false)
@@ -115,7 +120,9 @@ export function AddSourceDialog({
   const createSource = useCreateSource()
   const { data: notebooks = [], isLoading: notebooksLoading } = useNotebooks()
   const { data: transformations = [], isLoading: transformationsLoading } = useTransformations()
-  const { data: settings } = useSettings()
+  const { data: settings, isLoading: settingsLoading } = useSettings()
+  const dataLoaded = !transformationsLoading && !settingsLoading && !!settings
+  const defaultsInitialized = useRef(false)
 
   // Form setup
   const {
@@ -129,7 +136,7 @@ export function AddSourceDialog({
     resolver: zodResolver(createSourceSchema),
     defaultValues: {
       notebooks: defaultNotebookId ? [defaultNotebookId] : [],
-      embed: settings?.default_embedding_option === 'always' || settings?.default_embedding_option === 'ask',
+      embed: false,
       async_processing: true,
       transformations: [],
     },
@@ -137,25 +144,32 @@ export function AddSourceDialog({
 
   // Initialize form values when settings and transformations are loaded
   useEffect(() => {
-    if (settings && transformations.length > 0) {
-      const defaultTransformations = transformations
-        .filter(t => t.apply_default)
-        .map(t => t.id)
+    if (!dataLoaded || defaultsInitialized.current) return
 
-      setSelectedTransformations(defaultTransformations)
+    const defaultTransformations = Array.from(
+      new Set(
+        transformations
+          .filter(t => t.apply_default)
+          .map(t => t.id)
+      )
+    )
 
-      // Reset form with proper embed value based on settings
-      const embedValue = settings.default_embedding_option === 'always' ||
-                         (settings.default_embedding_option === 'ask')
+    setSelectedTransformations(defaultTransformations)
 
-      reset({
-        notebooks: defaultNotebookId ? [defaultNotebookId] : [],
-        embed: embedValue,
-        async_processing: true,
-        transformations: [],
-      })
-    }
-  }, [settings, transformations, defaultNotebookId, reset])
+    // Reset form with proper embed value based on settings
+    const embedValue = settings?.default_embedding_option === 'always' ||
+                       (settings?.default_embedding_option === 'ask')
+
+    reset({
+      notebooks: defaultNotebookId ? [defaultNotebookId] : [],
+      embed: embedValue,
+      async_processing: true,
+      transformations: [],
+    })
+
+    defaultsInitialized.current = true
+    log('Defaults initialized', { defaultTransformations, embedValue })
+  }, [dataLoaded, transformations, defaultNotebookId, reset, settings, log])
 
   // Cleanup effect
   useEffect(() => {
@@ -199,16 +213,11 @@ export function AddSourceDialog({
     return { isBatchMode, itemCount, parsedUrls, parsedFiles }
   }, [selectedType, watchedUrl, watchedFile])
 
-  // Check for batch size limit
-  const isOverLimit = itemCount > MAX_BATCH_SIZE
-
   // Step validation - now reactive with watched values
   const isStepValid = (step: number): boolean => {
     switch (step) {
       case 1:
         if (!selectedType) return false
-        // Check batch size limit
-        if (isOverLimit) return false
         // Check for URL validation errors
         if (urlValidationErrors.length > 0) return false
 
@@ -225,7 +234,7 @@ export function AddSourceDialog({
         }
         if (selectedType === 'upload') {
           if (watchedFile instanceof FileList) {
-            return watchedFile.length > 0 && watchedFile.length <= MAX_BATCH_SIZE
+            return watchedFile.length > 0
           }
           return !!watchedFile
         }
@@ -292,8 +301,8 @@ export function AddSourceDialog({
     setSelectedTransformations(updated)
   }
 
-  // Single source submission
-  const submitSingleSource = async (data: CreateSourceFormData): Promise<void> => {
+  // Single source submission (returns source id)
+  const submitSingleSource = async (data: CreateSourceFormData): Promise<string> => {
     const createRequest: CreateSourceRequest = {
       type: data.type,
       notebooks: selectedNotebooks,
@@ -312,7 +321,11 @@ export function AddSourceDialog({
       requestWithFile.file = file
     }
 
-    await createSource.mutateAsync(createRequest)
+    log('Submitting source', { createRequest })
+    const res = await createSource.mutateAsync(createRequest)
+    const sid = res?.id || ''
+    log('Submit response', res)
+    return sid
   }
 
   // Batch submission
@@ -381,6 +394,9 @@ export function AddSourceDialog({
   // Form submission
   const onSubmit = async (data: CreateSourceFormData) => {
     try {
+      if (!dataLoaded || !defaultsInitialized.current) {
+        return
+      }
       setProcessing(true)
 
       if (isBatchMode) {
@@ -399,9 +415,37 @@ export function AddSourceDialog({
 
         handleClose()
       } else {
-        // Single source submission
+        // Single source submission with status polling
         setProcessingStatus({ message: 'Submitting source for processing...' })
-        await submitSingleSource(data)
+        const sourceId = await submitSingleSource(data)
+        if (!sourceId) {
+          throw new Error('Source id missing from response')
+        }
+        setProcessingStatus({ message: 'Processing source...' })
+
+        // Poll status until completed/failed
+        const poll = async () => {
+          const statusRes = await apiClient.get(`/sources/${encodeURIComponent(sourceId)}/status`)
+          const statusJson = statusRes.data
+          log('Status poll', statusJson)
+          const state = statusJson.status || statusJson.processing_info?.status
+          if (state === 'completed') return true
+          if (state === 'failed') throw new Error(statusJson.processing_info?.error || 'Processing failed')
+          return false
+        }
+
+        const start = Date.now()
+        const timeoutMs = 120000
+        while (true) {
+          if (Date.now() - start > timeoutMs) {
+            throw new Error('Processing timed out')
+          }
+          const done = await poll()
+          if (done) break
+          await new Promise(r => setTimeout(r, 1500))
+        }
+
+        toast.success('Source processed')
         handleClose()
       }
     } catch (error) {
@@ -435,9 +479,13 @@ export function AddSourceDialog({
 
     // Reset to default transformations
     if (transformations.length > 0) {
-      const defaultTransformations = transformations
-        .filter(t => t.apply_default)
-        .map(t => t.id)
+      const defaultTransformations = Array.from(
+        new Set(
+          transformations
+            .filter(t => t.apply_default)
+            .map(t => t.id)
+        )
+      )
       setSelectedTransformations(defaultTransformations)
     } else {
       setSelectedTransformations([])
@@ -567,16 +615,16 @@ export function AddSourceDialog({
             )}
             
             {currentStep === 3 && (
-              <ProcessingStep
-                // @ts-expect-error - Type inference issue with zod schema
-                control={control}
-                transformations={transformations}
-                selectedTransformations={selectedTransformations}
-                onToggleTransformation={handleTransformationToggle}
-                loading={transformationsLoading}
-                settings={settings}
-              />
-            )}
+            <ProcessingStep
+              // @ts-expect-error - Type inference issue with zod schema
+              control={control}
+              transformations={transformations}
+              selectedTransformations={selectedTransformations}
+              onToggleTransformation={handleTransformationToggle}
+              loading={transformationsLoading || settingsLoading}
+              settings={settings}
+            />
+          )}
           </WizardContainer>
 
           {/* Navigation */}
@@ -606,7 +654,7 @@ export function AddSourceDialog({
                   type="button"
                   variant="outline"
                   onClick={(e) => handleNextStep(e)}
-                  disabled={!currentStepValid}
+                  disabled={!currentStepValid || !dataLoaded}
                 >
                   Next
                 </Button>
@@ -615,7 +663,7 @@ export function AddSourceDialog({
               {/* Show Done button on all steps, styled as primary */}
               <Button
                 type="submit"
-                disabled={!currentStepValid || createSource.isPending}
+                disabled={!currentStepValid || createSource.isPending || !dataLoaded || !defaultsInitialized.current}
                 className="min-w-[120px]"
               >
                 {createSource.isPending ? 'Creating...' : 'Done'}

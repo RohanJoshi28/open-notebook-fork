@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   if (envApiUrl) {
     return NextResponse.json({
       apiUrl: envApiUrl,
+      googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || null,
     })
   }
 
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         apiUrl,
+        googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || null,
       })
     }
   } catch (error) {
@@ -64,5 +66,6 @@ export async function GET(request: NextRequest) {
   console.log('[runtime-config] Using fallback: http://localhost:5055')
   return NextResponse.json({
     apiUrl: 'http://localhost:5055',
+    googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || null,
   })
 }

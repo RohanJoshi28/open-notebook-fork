@@ -41,6 +41,7 @@ class PodcastService:
         notebook_id: Optional[str] = None,
         content: Optional[str] = None,
         briefing_suffix: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> str:
         """Submit a podcast generation job for background processing"""
         try:
@@ -82,6 +83,7 @@ class PodcastService:
                 "episode_name": episode_name,
                 "content": str(content),
                 "briefing_suffix": briefing_suffix,
+                "owner": owner_id,
             }
 
             # Ensure command modules are imported before submitting
@@ -138,10 +140,12 @@ class PodcastService:
             )
 
     @staticmethod
-    async def list_episodes() -> list:
-        """List all podcast episodes"""
+    async def list_episodes(owner_id: Optional[str] = None) -> list:
+        """List all podcast episodes (scoped to owner if provided)"""
         try:
             episodes = await PodcastEpisode.get_all(order_by="created desc")
+            if owner_id:
+                episodes = [e for e in episodes if str(e.owner) == str(owner_id)]
             return episodes
         except Exception as e:
             logger.error(f"Failed to list podcast episodes: {e}")
@@ -150,11 +154,15 @@ class PodcastService:
             )
 
     @staticmethod
-    async def get_episode(episode_id: str) -> PodcastEpisode:
+    async def get_episode(episode_id: str, owner_id: Optional[str] = None) -> PodcastEpisode:
         """Get a specific podcast episode"""
         try:
             episode = await PodcastEpisode.get(episode_id)
+            if owner_id and (not episode or str(episode.owner) != str(owner_id)):
+                raise HTTPException(status_code=404, detail="Episode not found")
             return episode
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Failed to get podcast episode {episode_id}: {e}")
             raise HTTPException(status_code=404, detail=f"Episode not found: {str(e)}")

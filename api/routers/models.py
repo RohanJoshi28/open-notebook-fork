@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 
 from esperanto import AIFactory
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from loguru import logger
 
 from api.models import (
@@ -13,6 +13,7 @@ from api.models import (
 )
 from open_notebook.domain.models import DefaultModels, Model
 from open_notebook.exceptions import InvalidInputError
+from api.deps import require_admin
 
 router = APIRouter()
 
@@ -87,7 +88,7 @@ async def get_models(
 
 
 @router.post("/models", response_model=ModelResponse)
-async def create_model(model_data: ModelCreate):
+async def create_model(model_data: ModelCreate, request: Request, admin_email=Depends(require_admin)):
     """Create a new model configuration."""
     try:
         # Validate model type
@@ -135,7 +136,7 @@ async def create_model(model_data: ModelCreate):
 
 
 @router.delete("/models/{model_id}")
-async def delete_model(model_id: str):
+async def delete_model(model_id: str, request: Request, admin_email=Depends(require_admin)):
     """Delete a model configuration."""
     try:
         model = await Model.get(model_id)
@@ -174,7 +175,7 @@ async def get_default_models():
 
 
 @router.put("/models/defaults", response_model=DefaultModelsResponse)
-async def update_default_models(defaults_data: DefaultModelsResponse):
+async def update_default_models(defaults_data: DefaultModelsResponse, request: Request, admin_email=Depends(require_admin)):
     """Update default model assignments."""
     try:
         defaults = await DefaultModels.get_instance()
@@ -293,6 +294,10 @@ async def get_provider_availability():
                 for model_type, providers in esperanto_available.items():
                     if provider in providers:
                         supported_types[provider].append(model_type)
+
+        # Always allow a manual/custom provider so admins can register arbitrary models
+        available_providers.append("custom")
+        supported_types["custom"] = ["language", "embedding", "speech_to_text", "text_to_speech", "image"]
 
         # Manually flag google as supporting image generation when configured
         if provider_status.get("google"):

@@ -14,7 +14,8 @@ try:
     from podcast_creator import configure, create_podcast
 except ImportError as e:
     logger.error(f"Failed to import podcast_creator: {e}")
-    raise ValueError("podcast_creator library not available")
+    configure = None
+    create_podcast = None
 
 
 def full_model_dump(model):
@@ -34,6 +35,7 @@ class PodcastGenerationInput(CommandInput):
     episode_name: str
     content: str
     briefing_suffix: Optional[str] = None
+    owner: Optional[str] = None
 
 
 class PodcastGenerationOutput(CommandOutput):
@@ -56,6 +58,8 @@ async def generate_podcast_command(
     start_time = time.time()
 
     try:
+        if not configure or not create_podcast:
+            raise ValueError("podcast_creator library not available")
         logger.info(
             f"Starting podcast generation for episode: {input_data.episode_name}"
         )
@@ -63,7 +67,11 @@ async def generate_podcast_command(
 
         # 1. Load Episode and Speaker profiles from SurrealDB
         episode_profile = await EpisodeProfile.get_by_name(input_data.episode_profile)
-        if not episode_profile:
+        if not episode_profile or (
+            episode_profile.owner is not None
+            and input_data.owner
+            and str(episode_profile.owner) != str(input_data.owner)
+        ):
             raise ValueError(
                 f"Episode profile '{input_data.episode_profile}' not found"
             )
@@ -71,7 +79,11 @@ async def generate_podcast_command(
         speaker_profile = await SpeakerProfile.get_by_name(
             episode_profile.speaker_config
         )
-        if not speaker_profile:
+        if not speaker_profile or (
+            speaker_profile.owner is not None
+            and input_data.owner
+            and str(speaker_profile.owner) != str(input_data.owner)
+        ):
             raise ValueError(
                 f"Speaker profile '{episode_profile.speaker_config}' not found"
             )
@@ -109,6 +121,7 @@ async def generate_podcast_command(
             audio_file=None,
             transcript=None,
             outline=None,
+            owner=input_data.owner,
         )
         await episode.save()
 

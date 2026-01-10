@@ -26,6 +26,7 @@ class EpisodeProfile(ObjectModel):
     transcript_model: str = Field(..., description="AI model for transcript generation")
     default_briefing: str = Field(..., description="Default briefing template")
     num_segments: int = Field(default=5, description="Number of podcast segments")
+    owner: Optional[str] = None
 
     @field_validator("num_segments")
     @classmethod
@@ -62,6 +63,7 @@ class SpeakerProfile(ObjectModel):
     speakers: List[Dict[str, Any]] = Field(
         ..., description="Array of speaker configurations"
     )
+    owner: Optional[str] = None
 
     @field_validator("speakers")
     @classmethod
@@ -113,6 +115,7 @@ class PodcastEpisode(ObjectModel):
     command: Optional[Union[str, RecordID]] = Field(
         default=None, description="Link to surreal-commands job"
     )
+    owner: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

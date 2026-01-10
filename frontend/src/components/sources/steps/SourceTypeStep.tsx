@@ -91,8 +91,6 @@ interface SourceTypeStepProps {
   onClearUrlErrors?: () => void
 }
 
-const MAX_BATCH_SIZE = 50
-
 export function SourceTypeStep({ control, register, errors, urlValidationErrors, onClearUrlErrors }: SourceTypeStepProps) {
   // Watch the selected type and inputs to detect batch mode
   const selectedType = useWatch({ control, name: 'type' })
@@ -120,8 +118,6 @@ export function SourceTypeStep({ control, register, errors, urlValidationErrors,
     return { isBatchMode, itemCount, urlCount, fileCount }
   }, [selectedType, urlInput, fileInput])
 
-  // Check for batch size limit
-  const isOverLimit = itemCount > MAX_BATCH_SIZE
   return (
     <div className="space-y-6">
       <FormSection
@@ -159,9 +155,8 @@ export function SourceTypeStep({ control, register, errors, urlValidationErrors,
                       <div className="flex items-center justify-between mb-2">
                         <Label htmlFor="url">URL(s) *</Label>
                         {urlCount > 0 && (
-                          <Badge variant={isOverLimit ? "destructive" : "secondary"}>
+                          <Badge variant="secondary">
                             {urlCount} URL{urlCount !== 1 ? 's' : ''}
-                            {isOverLimit && ` (max ${MAX_BATCH_SIZE})`}
                           </Badge>
                         )}
                       </div>
@@ -208,9 +203,8 @@ export function SourceTypeStep({ control, register, errors, urlValidationErrors,
                       <div className="flex items-center justify-between mb-2">
                         <Label htmlFor="file">File(s) *</Label>
                         {fileCount > 0 && (
-                          <Badge variant={isOverLimit ? "destructive" : "secondary"}>
+                          <Badge variant="secondary">
                             {fileCount} file{fileCount !== 1 ? 's' : ''}
-                            {isOverLimit && ` (max ${MAX_BATCH_SIZE})`}
                           </Badge>
                         )}
                       </div>
@@ -242,11 +236,6 @@ export function SourceTypeStep({ control, register, errors, urlValidationErrors,
                       )}
                       {errors.file && (
                         <p className="text-sm text-destructive mt-1">{errors.file.message}</p>
-                      )}
-                      {isOverLimit && selectedType === 'upload' && (
-                        <p className="text-sm text-destructive mt-1">
-                          Maximum {MAX_BATCH_SIZE} files allowed per batch
-                        </p>
                       )}
                     </div>
                   )}

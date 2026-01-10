@@ -46,6 +46,12 @@ async def execute_command(request: CommandExecutionRequest):
     """
     try:
         # Submit command using app name (not module name)
+        logger.debug(
+            "commands.execute_command request command=%s app=%s keys=%s",
+            request.command,
+            request.app,
+            list(request.input.keys()),
+        )
         job_id = await CommandService.submit_command_job(
             module_name=request.app,  # This should be "open_notebook"
             command_name=request.command,
@@ -69,6 +75,7 @@ async def execute_command(request: CommandExecutionRequest):
 async def get_command_job_status(job_id: str):
     """Get the status of a specific command job"""
     try:
+        logger.debug("commands.get_command_job_status job_id=%s", job_id)
         status_data = await CommandService.get_command_status(job_id)
         return CommandJobStatusResponse(**status_data)
         
@@ -87,6 +94,12 @@ async def list_command_jobs(
 ):
     """List command jobs with optional filtering"""
     try:
+        logger.debug(
+            "commands.list_command_jobs filter_command=%s filter_status=%s limit=%s",
+            command_filter,
+            status_filter,
+            limit,
+        )
         jobs = await CommandService.list_command_jobs(
             command_filter=command_filter,
             status_filter=status_filter,
@@ -105,6 +118,7 @@ async def list_command_jobs(
 async def cancel_command_job(job_id: str):
     """Cancel a running command job"""
     try:
+        logger.debug("commands.cancel_command_job job_id=%s", job_id)
         success = await CommandService.cancel_command_job(job_id)
         return {"job_id": job_id, "cancelled": success}
         
@@ -121,6 +135,7 @@ async def debug_registry():
     try:
         # Get all registered commands
         all_items = registry.get_all_commands()
+        logger.debug("commands.debug_registry total_items=%s", len(all_items))
         
         # Create JSON-serializable data
         command_items = []

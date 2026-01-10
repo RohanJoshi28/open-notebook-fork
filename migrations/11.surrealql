@@ -1,0 +1,24 @@
+-- Migration 11: backfill owner for existing data
+
+LET $admin_user_id = "user:rjoshi";
+
+-- Ensure admin user exists
+UPSERT $admin_user_id CONTENT {
+    email: "rjoshi@force10partners.com",
+    sub: "rjoshi@force10partners.com",
+    name: "Rohan Joshi",
+    picture: null
+};
+
+-- Assign owner to existing records where missing
+UPDATE notebook SET owner = $admin_user_id WHERE owner = none;
+UPDATE source SET owner = $admin_user_id WHERE owner = none;
+UPDATE source_embedding SET owner = $admin_user_id WHERE owner = none;
+UPDATE source_insight SET owner = $admin_user_id WHERE owner = none;
+UPDATE note SET owner = $admin_user_id WHERE owner = none;
+UPDATE chat_session SET owner = $admin_user_id WHERE owner = none;
+UPDATE transformation SET owner = $admin_user_id WHERE owner = none;
+UPDATE episode_profile SET owner = $admin_user_id WHERE owner = none;
+UPDATE speaker_profile SET owner = $admin_user_id WHERE owner = none;
+UPDATE episode SET owner = $admin_user_id WHERE owner = none;
+UPDATE podcast_config SET owner = $admin_user_id WHERE owner = none;

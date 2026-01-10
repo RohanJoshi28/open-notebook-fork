@@ -15,6 +15,7 @@ class PodcastEpisode(ObjectModel):
     instructions: str
     text: str
     audio_file: str
+    owner: Optional[str] = None
 
 
 class PodcastConfig(ObjectModel):
@@ -37,6 +38,7 @@ class PodcastConfig(ObjectModel):
     voice1: str
     voice2: str
     model: str
+    owner: Optional[str] = None
 
     # Backwards compatibility
     @field_validator("person1_role", "person2_role", mode="before")

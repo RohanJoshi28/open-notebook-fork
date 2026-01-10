@@ -126,7 +126,7 @@ async def generate_image_message(
         HumanMessage(content=_human_planner_prompt(image_request["image_prompt"], context_summary)),
     ]
 
-    planner_response = model.invoke(planner_messages)
+    planner_response = await model.ainvoke(planner_messages)
     plan_text = render_message_content(planner_response) or ""
     final_prompt = _extract_final_prompt(plan_text or image_request["image_prompt"])
 
@@ -142,7 +142,12 @@ async def generate_image_message(
             model_name=image_request["image_model"]["name"],
         )
     except NanoBananaError as exc:
-        logger.error("Nano Banana generation failed: {}", exc)
+        logger.error(
+            "Nano Banana generation failed model=%s prompt_len=%s err=%s",
+            image_request["image_model"]["name"],
+            len(final_prompt),
+            exc,
+        )
         raise
 
     logger.debug(

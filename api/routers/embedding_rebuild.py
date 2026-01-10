@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from loguru import logger
 from surreal_commands import get_command_status
 
@@ -11,12 +11,13 @@ from api.models import (
     RebuildStatusResponse,
 )
 from open_notebook.database.repository import repo_query
+from api.deps import require_admin
 
 router = APIRouter()
 
 
 @router.post("/rebuild", response_model=RebuildResponse)
-async def start_rebuild(request: RebuildRequest):
+async def start_rebuild(request: RebuildRequest, req: Request, admin_email=Depends(require_admin)):
     """
     Start a background job to rebuild embeddings.
 

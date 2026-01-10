@@ -1,10 +1,11 @@
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from open_notebook.domain.podcast import EpisodeProfile
+from api.deps import get_current_user_id
 
 router = APIRouter()
 
@@ -23,10 +24,13 @@ class EpisodeProfileResponse(BaseModel):
 
 
 @router.get("/episode-profiles", response_model=List[EpisodeProfileResponse])
-async def list_episode_profiles():
-    """List all available episode profiles"""
+async def list_episode_profiles(user_id: str = Depends(get_current_user_id)):
+    """List episode profiles (shared or owned)."""
     try:
-        profiles = await EpisodeProfile.get_all(order_by="name asc")
+        profiles = [
+            p for p in await EpisodeProfile.get_all(order_by="name asc")
+            if p.owner is None or str(p.owner) == str(user_id)
+        ]
         
         return [
             EpisodeProfileResponse(
@@ -53,12 +57,12 @@ async def list_episode_profiles():
 
 
 @router.get("/episode-profiles/{profile_name}", response_model=EpisodeProfileResponse)
-async def get_episode_profile(profile_name: str):
+async def get_episode_profile(profile_name: str, user_id: str = Depends(get_current_user_id)):
     """Get a specific episode profile by name"""
     try:
         profile = await EpisodeProfile.get_by_name(profile_name)
         
-        if not profile:
+        if not profile or (profile.owner is not None and str(profile.owner) != str(user_id)):
             raise HTTPException(
                 status_code=404,
                 detail=f"Episode profile '{profile_name}' not found"
@@ -100,7 +104,7 @@ class EpisodeProfileCreate(BaseModel):
 
 
 @router.post("/episode-profiles", response_model=EpisodeProfileResponse)
-async def create_episode_profile(profile_data: EpisodeProfileCreate):
+async def create_episode_profile(profile_data: EpisodeProfileCreate, user_id: str = Depends(get_current_user_id)):
     """Create a new episode profile"""
     try:
         profile = EpisodeProfile(
@@ -112,7 +116,8 @@ async def create_episode_profile(profile_data: EpisodeProfileCreate):
             transcript_provider=profile_data.transcript_provider,
             transcript_model=profile_data.transcript_model,
             default_briefing=profile_data.default_briefing,
-            num_segments=profile_data.num_segments
+            num_segments=profile_data.num_segments,
+            owner=user_id,
         )
         
         await profile.save()
@@ -139,12 +144,12 @@ async def create_episode_profile(profile_data: EpisodeProfileCreate):
 
 
 @router.put("/episode-profiles/{profile_id}", response_model=EpisodeProfileResponse)
-async def update_episode_profile(profile_id: str, profile_data: EpisodeProfileCreate):
+async def update_episode_profile(profile_id: str, profile_data: EpisodeProfileCreate, user_id: str = Depends(get_current_user_id)):
     """Update an existing episode profile"""
     try:
         profile = await EpisodeProfile.get(profile_id)
         
-        if not profile:
+        if not profile or (profile.owner is not None and str(profile.owner) != str(user_id)):
             raise HTTPException(
                 status_code=404,
                 detail=f"Episode profile '{profile_id}' not found"
@@ -187,12 +192,12 @@ async def update_episode_profile(profile_id: str, profile_data: EpisodeProfileCr
 
 
 @router.delete("/episode-profiles/{profile_id}")
-async def delete_episode_profile(profile_id: str):
+async def delete_episode_profile(profile_id: str, user_id: str = Depends(get_current_user_id)):
     """Delete an episode profile"""
     try:
         profile = await EpisodeProfile.get(profile_id)
         
-        if not profile:
+        if not profile or (profile.owner is not None and str(profile.owner) != str(user_id)):
             raise HTTPException(
                 status_code=404,
                 detail=f"Episode profile '{profile_id}' not found"
@@ -213,12 +218,12 @@ async def delete_episode_profile(profile_id: str):
 
 
 @router.post("/episode-profiles/{profile_id}/duplicate", response_model=EpisodeProfileResponse)
-async def duplicate_episode_profile(profile_id: str):
+async def duplicate_episode_profile(profile_id: str, user_id: str = Depends(get_current_user_id)):
     """Duplicate an episode profile"""
     try:
         original = await EpisodeProfile.get(profile_id)
         
-        if not original:
+        if not original or (original.owner is not None and str(original.owner) != str(user_id)):
             raise HTTPException(
                 status_code=404,
                 detail=f"Episode profile '{profile_id}' not found"
@@ -234,7 +239,8 @@ async def duplicate_episode_profile(profile_id: str):
             transcript_provider=original.transcript_provider,
             transcript_model=original.transcript_model,
             default_briefing=original.default_briefing,
-            num_segments=original.num_segments
+            num_segments=original.num_segments,
+            owner=user_id,
         )
         
         await duplicate.save()

@@ -2,7 +2,7 @@ import asyncio
 import json
 from typing import Any, AsyncGenerator, Iterable, List, Optional
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Depends
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -16,8 +16,25 @@ from open_notebook.exceptions import (
 )
 from open_notebook.graphs.source_chat import source_chat_graph as source_chat_graph
 from open_notebook.utils import render_message_content
+from api.deps import get_current_user_id
 
 router = APIRouter()
+
+
+async def _ensure_source_owned(source_id: str, user_id: str) -> Source:
+    full_source_id = source_id if source_id.startswith("source:") else f"source:{source_id}"
+    source = await Source.get(full_source_id)
+    if not source or str(source.owner) != str(user_id):
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+async def _ensure_session_owned(session_id: str, user_id: str) -> ChatSession:
+    full_session_id = session_id if session_id.startswith("chat_session:") else f"chat_session:{session_id}"
+    session = await ChatSession.get(full_session_id)
+    if not session or str(session.owner) != str(user_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 # Request/Response models
 class CreateSourceChatSessionRequest(BaseModel):
@@ -78,20 +95,20 @@ class SuccessResponse(BaseModel):
 @router.post("/sources/{source_id}/chat/sessions", response_model=SourceChatSessionResponse)
 async def create_source_chat_session(
     request: CreateSourceChatSessionRequest,
-    source_id: str = Path(..., description="Source ID")
+    source_id: str = Path(..., description="Source ID"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Create a new chat session for a source."""
     try:
-        # Verify source exists
-        full_source_id = source_id if source_id.startswith("source:") else f"source:{source_id}"
-        source = await Source.get(full_source_id)
-        if not source:
-            raise HTTPException(status_code=404, detail="Source not found")
+        # Verify source exists and ownership
+        source = await _ensure_source_owned(source_id, user_id)
+        full_source_id = source.id if source.id else source_id
         
         # Create new session with model_override support
         session = ChatSession(
             title=request.title or f"Source Chat {asyncio.get_event_loop().time():.0f}",
-            model_override=request.model_override
+            model_override=request.model_override,
+            owner=user_id,
         )
         await session.save()
         
@@ -116,15 +133,13 @@ async def create_source_chat_session(
 
 @router.get("/sources/{source_id}/chat/sessions", response_model=List[SourceChatSessionResponse])
 async def get_source_chat_sessions(
-    source_id: str = Path(..., description="Source ID")
+    source_id: str = Path(..., description="Source ID"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get all chat sessions for a source."""
     try:
-        # Verify source exists
-        full_source_id = source_id if source_id.startswith("source:") else f"source:{source_id}"
-        source = await Source.get(full_source_id)
-        if not source:
-            raise HTTPException(status_code=404, detail="Source not found")
+        source = await _ensure_source_owned(source_id, user_id)
+        full_source_id = source.id if source.id else source_id
         
         # Get sessions that refer to this source - first get relations, then sessions
         relations = await repo_query(
@@ -139,6 +154,8 @@ async def get_source_chat_sessions(
                 session_result = await repo_query(f"SELECT * FROM {session_id}")
                 if session_result and len(session_result) > 0:
                     session_data = session_result[0]
+                    if session_data.get("owner") and str(session_data.get("owner")) != str(user_id):
+                        continue
                     sessions.append(SourceChatSessionResponse(
                         id=session_data.get("id") or "",
                         title=session_data.get("title") or "Untitled Session",
@@ -162,21 +179,17 @@ async def get_source_chat_sessions(
 @router.get("/sources/{source_id}/chat/sessions/{session_id}", response_model=SourceChatSessionWithMessagesResponse)
 async def get_source_chat_session(
     source_id: str = Path(..., description="Source ID"),
-    session_id: str = Path(..., description="Session ID")
+    session_id: str = Path(..., description="Session ID"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get a specific source chat session with its messages."""
     try:
-        # Verify source exists
-        full_source_id = source_id if source_id.startswith("source:") else f"source:{source_id}"
-        source = await Source.get(full_source_id)
-        if not source:
-            raise HTTPException(status_code=404, detail="Source not found")
+        source = await _ensure_source_owned(source_id, user_id)
+        full_source_id = source.id if source.id else source_id
         
         # Get session
-        full_session_id = session_id if session_id.startswith("chat_session:") else f"chat_session:{session_id}"
-        session = await ChatSession.get(full_session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
+        session = await _ensure_session_owned(session_id, user_id)
+        full_session_id = session.id if session.id else session_id
         
         # Verify session is related to this source
         relation_query = await repo_query(
@@ -403,21 +416,15 @@ async def stream_source_chat_response(
 async def send_message_to_source_chat(
     request: SendMessageRequest,
     source_id: str = Path(..., description="Source ID"),
-    session_id: str = Path(..., description="Session ID")
+    session_id: str = Path(..., description="Session ID"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Send a message to source chat session with SSE streaming response."""
     try:
-        # Verify source exists
-        full_source_id = source_id if source_id.startswith("source:") else f"source:{source_id}"
-        source = await Source.get(full_source_id)
-        if not source:
-            raise HTTPException(status_code=404, detail="Source not found")
-        
-        # Verify session exists and is related to source
-        full_session_id = session_id if session_id.startswith("chat_session:") else f"chat_session:{session_id}"
-        session = await ChatSession.get(full_session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
+        source = await _ensure_source_owned(source_id, user_id)
+        full_source_id = source.id if source.id else source_id
+        session = await _ensure_session_owned(session_id, user_id)
+        full_session_id = session.id if session.id else session_id
         
         # Verify session is related to this source
         relation_query = await repo_query(

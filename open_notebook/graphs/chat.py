@@ -7,10 +7,11 @@ from typing import Annotated, Callable, Coroutine, List, Optional, Tuple, TypeVa
 from ai_prompter import Prompter
 from langchain_core.messages import AIMessage, SystemMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
+from loguru import logger
 
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.domain.notebook import Notebook
@@ -47,44 +48,55 @@ class ThreadState(TypedDict):
     image_generation: Optional[dict]
 
 
-def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:
+async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:
     if state.get("image_generation"):
+        logger.debug("Image generation path: payload present for thread %s", config.get("configurable", {}).get("thread_id"))
         image_payload = state.get("image_generation") or {}
         planner_model_id = (
             config.get("configurable", {}).get("model_id")
             or state.get("model_override")
         )
 
-        ai_message = _run_async(
-            lambda: generate_image_message(
-                image_request=image_payload,
-                context=state.get("context"),
-                planner_model_id=planner_model_id,
-            )
+        ai_message = await generate_image_message(
+            image_request=image_payload,
+            context=state.get("context"),
+            planner_model_id=planner_model_id,
         )
 
         state["image_generation"] = None
         return {"messages": ai_message}
 
     system_prompt = Prompter(prompt_template="chat").render(data=state)  # type: ignore[arg-type]
+    logger.debug(
+        "Text chat path: thread=%s messages=%s ctx_sources=%s ctx_notes=%s model_override=%s",
+        config.get("configurable", {}).get("thread_id"),
+        len(state.get("messages", [])),
+        len(state.get("context", {}).get("sources", [])) if state.get("context") else 0,
+        len(state.get("context", {}).get("notes", [])) if state.get("context") else 0,
+        state.get("model_override"),
+    )
+    logger.info(
+        f"Text chat path: thread={config.get('configurable', {}).get('thread_id')} "
+        f"messages={len(state.get('messages', []))} "
+        f"image_generation={bool(state.get('image_generation'))} "
+        f"keys={list(state.keys())}"
+    )
     payload = [SystemMessage(content=system_prompt)] + state.get("messages", [])
     model_id = config.get("configurable", {}).get("model_id") or state.get(
         "model_override"
     )
     combined_payload_text = str(payload)
     sanitized_text = DATA_URI_RE.sub("[image omitted]", combined_payload_text)
-    model = _run_async(
-        lambda: provision_langchain_model(
-            sanitized_text,
-            model_id,
-            "chat",
-            max_tokens=8192,
-        )
+    model = await provision_langchain_model(
+        sanitized_text,
+        model_id,
+        "chat",
+        max_tokens=8192,
     )
 
     replacements = _strip_data_uris_from_messages(payload)
     try:
-        ai_message = model.invoke(payload)
+        ai_message = await model.ainvoke(payload)
     finally:
         _restore_data_uris(replacements)
     return {"messages": ai_message}
@@ -107,12 +119,8 @@ def _restore_data_uris(replacements: List[Tuple[BaseMessage, str]]) -> None:
         message.content = original_content
 
 
-conn = sqlite3.connect(
-    LANGGRAPH_CHECKPOINT_FILE,
-    check_same_thread=False,
-)
-memory = SqliteSaver(conn)
-
+# Use in-memory checkpointer (async-safe) to satisfy LangGraph requirements
+memory = MemorySaver()
 agent_state = StateGraph(ThreadState)
 agent_state.add_node("agent", call_model_with_messages)
 agent_state.add_edge(START, "agent")

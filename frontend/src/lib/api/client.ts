@@ -15,8 +15,21 @@ export const apiClient = axios.create({
   withCredentials: false,
 })
 
-// Request interceptor to add base URL and auth header
+// Enable verbose logging only in dev or when explicitly requested
+const DEBUG_LOGS =
+  process.env.NEXT_PUBLIC_DEBUG_LOGS === '1' || process.env.NODE_ENV === 'development'
+
+// Request interceptor to add base URL, auth header, and verbose logging
 apiClient.interceptors.request.use(async (config) => {
+  const started = Date.now()
+  const timedConfig = config as typeof config & { __start?: number }
+  timedConfig.__start = started
+  if (DEBUG_LOGS && typeof window !== 'undefined') {
+    console.debug('[api][req]', config.method?.toUpperCase(), config.url, {
+      params: config.params,
+      data: config.data,
+    })
+  }
   // Set the base URL dynamically from runtime config
   if (!config.baseURL) {
     const apiUrl = await getApiUrl()
@@ -50,8 +63,37 @@ apiClient.interceptors.request.use(async (config) => {
 
 // Response interceptor for error handling
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => response,
+  (response: AxiosResponse) => {
+    const cfg = (response.config || {}) as typeof response.config & { __start?: number }
+    const start = cfg.__start
+    const dur = start ? Date.now() - start : undefined
+    if (DEBUG_LOGS && typeof window !== 'undefined') {
+      console.debug(
+        '[api][res]',
+        cfg.method?.toUpperCase(),
+        cfg.url,
+        'status',
+        response.status,
+        dur ? `${dur}ms` : ''
+      )
+    }
+    return response
+  },
   (error) => {
+    const cfg = (error.config || {}) as typeof error.config & { __start?: number }
+    const start = cfg.__start
+    const dur = start ? Date.now() - start : undefined
+    if (DEBUG_LOGS && typeof window !== 'undefined') {
+      console.debug(
+        '[api][res]',
+        cfg.method?.toUpperCase(),
+        cfg.url,
+        'status',
+        error.response?.status,
+        dur ? `${dur}ms` : '',
+        { data: error.response?.data }
+      )
+    }
     if (error.response?.status === 401) {
       // Clear auth and redirect to login
       if (typeof window !== 'undefined') {

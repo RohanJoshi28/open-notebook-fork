@@ -10,6 +10,7 @@ export function useAuth() {
     isAuthenticated,
     isLoading,
     login,
+    loginWithCode,
     logout,
     checkAuth,
     checkAuthRequired,
@@ -63,6 +64,7 @@ export function useAuth() {
     isLoading: isLoading || !hasHydrated, // Treat lack of hydration as loading
     error,
     login: handleLogin,
+    loginWithCode,
     logout: handleLogout
   }
 }

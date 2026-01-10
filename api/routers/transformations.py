@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from loguru import logger
 
 from api.models import (
@@ -16,15 +16,19 @@ from open_notebook.domain.models import Model
 from open_notebook.domain.transformation import DefaultPrompts, Transformation
 from open_notebook.exceptions import InvalidInputError
 from open_notebook.graphs.transformation import graph as transformation_graph
+from api.deps import get_current_user_id
 
 router = APIRouter()
 
 
 @router.get("/transformations", response_model=List[TransformationResponse])
-async def get_transformations():
+async def get_transformations(user_id: str = Depends(get_current_user_id)):
     """Get all transformations."""
     try:
-        transformations = await Transformation.get_all(order_by="name asc")
+        transformations = [
+            t for t in await Transformation.get_all(order_by="name asc")
+            if t.owner is None or str(t.owner) == str(user_id)
+        ]
 
         return [
             TransformationResponse(
@@ -47,7 +51,7 @@ async def get_transformations():
 
 
 @router.post("/transformations", response_model=TransformationResponse)
-async def create_transformation(transformation_data: TransformationCreate):
+async def create_transformation(transformation_data: TransformationCreate, user_id: str = Depends(get_current_user_id)):
     """Create a new transformation."""
     try:
         new_transformation = Transformation(
@@ -56,6 +60,7 @@ async def create_transformation(transformation_data: TransformationCreate):
             description=transformation_data.description,
             prompt=transformation_data.prompt,
             apply_default=transformation_data.apply_default,
+            owner=user_id,
         )
         await new_transformation.save()
 
@@ -79,12 +84,12 @@ async def create_transformation(transformation_data: TransformationCreate):
 
 
 @router.post("/transformations/execute", response_model=TransformationExecuteResponse)
-async def execute_transformation(execute_request: TransformationExecuteRequest):
+async def execute_transformation(execute_request: TransformationExecuteRequest, user_id: str = Depends(get_current_user_id)):
     """Execute a transformation on input text."""
     try:
         # Validate transformation exists
         transformation = await Transformation.get(execute_request.transformation_id)
-        if not transformation:
+        if not transformation or (transformation.owner is not None and str(transformation.owner) != str(user_id)):
             raise HTTPException(status_code=404, detail="Transformation not found")
 
         # Validate model exists

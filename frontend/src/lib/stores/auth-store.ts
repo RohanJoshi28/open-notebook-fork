@@ -13,7 +13,8 @@ interface AuthState {
   authRequired: boolean | null
   setHasHydrated: (state: boolean) => void
   checkAuthRequired: () => Promise<boolean>
-  login: (password: string) => Promise<boolean>
+  login: (idToken: string) => Promise<boolean>
+  loginWithCode: (code: string, redirectUri: string) => Promise<boolean>
   logout: () => void
   checkAuth: () => Promise<boolean>
 }
@@ -74,24 +75,24 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      login: async (password: string) => {
+      login: async (idToken: string) => {
         set({ isLoading: true, error: null })
         try {
           const apiUrl = await getApiUrl()
 
-          // Test auth with notebooks endpoint
-          const response = await fetch(`${apiUrl}/api/notebooks`, {
-            method: 'GET',
+          const response = await fetch(`${apiUrl}/api/auth/login/google`, {
+            method: 'POST',
             headers: {
-              'Authorization': `Bearer ${password}`,
               'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ id_token: idToken })
           })
           
           if (response.ok) {
+            const data = await response.json()
             set({ 
               isAuthenticated: true, 
-              token: password, 
+              token: data.token, 
               isLoading: false,
               lastAuthCheck: Date.now(),
               error: null
@@ -100,7 +101,7 @@ export const useAuthStore = create<AuthState>()(
           } else {
             let errorMessage = 'Authentication failed'
             if (response.status === 401) {
-              errorMessage = 'Invalid password. Please try again.'
+              errorMessage = 'Google authentication failed.'
             } else if (response.status === 403) {
               errorMessage = 'Access denied. Please check your credentials.'
             } else if (response.status >= 500) {
@@ -131,6 +132,66 @@ export const useAuthStore = create<AuthState>()(
           
           set({ 
             error: errorMessage,
+            isLoading: false,
+            isAuthenticated: false,
+            token: null
+          })
+          return false
+        }
+      },
+
+      loginWithCode: async (code: string, redirectUri: string) => {
+        set({ isLoading: true, error: null })
+        try {
+          const apiUrl = await getApiUrl()
+          const response = await fetch(`${apiUrl}/api/auth/login/google-code`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ code, redirect_uri: redirectUri })
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            set({
+              isAuthenticated: true,
+              token: data.token,
+              isLoading: false,
+              lastAuthCheck: Date.now(),
+              error: null
+            })
+            return true
+          } else {
+            let message = `Authentication failed (${response.status})`
+            try {
+              const errData = await response.json()
+              if (errData?.detail) {
+                message = Array.isArray(errData.detail)
+                  ? errData.detail.map((d: unknown) => {
+                      if (typeof d === 'string') return d
+                      if (typeof d === 'object' && d && 'msg' in d && typeof (d as { msg?: unknown }).msg === 'string') {
+                        return (d as { msg?: string }).msg as string
+                      }
+                      return String(d)
+                    }).join('; ')
+                  : String(errData.detail)
+              }
+            } catch (err) {
+              console.warn('Failed to parse auth error response', err)
+            }
+            set({
+              error: message,
+              isLoading: false,
+              isAuthenticated: false,
+              token: null
+            })
+            return false
+          }
+        } catch (error) {
+          console.error('Network error during auth (code flow):', error)
+          set({
+            error: 'Network error during authentication',
             isLoading: false,
             isAuthenticated: false,
             token: null

@@ -233,6 +233,14 @@ async def embed_chunk_command(
         # Generate embedding for the chunk
         embedding = (await EMBEDDING_MODEL.aembed([input_data.chunk_text]))[0]
 
+        # Fetch source owner to propagate ownership to embeddings
+        source_owner = None
+        try:
+            source_obj = await Source.get(input_data.source_id)
+            source_owner = source_obj.owner if source_obj else None
+        except Exception:
+            source_owner = None
+
         # Insert chunk embedding into database
         await repo_query(
             """
@@ -241,6 +249,7 @@ async def embed_chunk_command(
                 "order": $order,
                 "content": $content,
                 "embedding": $embedding,
+                "owner": $owner,
             };
             """,
             {
@@ -248,6 +257,7 @@ async def embed_chunk_command(
                 "order": input_data.chunk_index,
                 "content": input_data.chunk_text,
                 "embedding": embedding,
+                "owner": ensure_record_id(source_owner) if source_owner else None,
             },
         )
 

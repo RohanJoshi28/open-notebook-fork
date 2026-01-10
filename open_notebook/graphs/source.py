@@ -1,4 +1,5 @@
 import operator
+import os
 from typing import Any, Dict, List, Optional
 
 from content_core import extract_content
@@ -41,6 +42,9 @@ async def content_process(state: SourceState) -> dict:
     )
     content_state: Dict[str, Any] = state["content_state"]  # type: ignore[assignment]
 
+    # Preserve meta flags (_orig_file_path, delete_source, etc.) to re-attach after extraction
+    meta_keys = {k: v for k, v in content_state.items() if k.startswith("_") or k == "delete_source"}
+
     content_state["url_engine"] = (
         content_settings.default_content_processing_engine_url or "auto"
     )
@@ -64,6 +68,15 @@ async def content_process(state: SourceState) -> dict:
         # Continue without custom audio model (content-core will use its default)
 
     processed_state = await extract_content(content_state)
+
+    # Convert to plain dict if extract_content returns a Pydantic/BaseModel-like object
+    if hasattr(processed_state, "model_dump"):
+        processed_state = processed_state.model_dump()  # type: ignore[assignment]
+
+    # Re-attach meta flags so downstream nodes can access them
+    if isinstance(processed_state, dict):
+        processed_state.update(meta_keys)
+
     return {"content_state": processed_state}
 
 
@@ -76,12 +89,25 @@ async def save_source(state: SourceState) -> dict:
         raise ValueError(f"Source with ID {state['source_id']} not found")
 
     # Update the source with processed content
-    source.asset = Asset(url=content_state.url, file_path=content_state.file_path)
-    source.full_text = content_state.content
+    original_path = content_state.get("_orig_file_path") if isinstance(content_state, dict) else getattr(content_state, "_orig_file_path", None)
+
+    # Extract fields in a dict-friendly way so we don't blow up when extract_content returns a plain dict
+    def _cs_val(key: str):
+        if isinstance(content_state, dict):
+            return content_state.get(key)
+        return getattr(content_state, key, None)
+
+    source.asset = Asset(
+        url=original_path or _cs_val("url"),
+        file_path=original_path or _cs_val("file_path"),
+    )
+    source.full_text = _cs_val("content")
     
-    # Preserve existing title if none provided in processed content
-    if content_state.title:
-        source.title = content_state.title
+    # Preserve user-provided title; only override if extracted title exists AND current title is missing or placeholder
+    title_val = _cs_val("title")
+    if title_val:
+        if not source.title or source.title.strip().lower() in {"processing...", ""}:
+            source.title = title_val
     
     await source.save()
 
@@ -91,6 +117,28 @@ async def save_source(state: SourceState) -> dict:
     if state["embed"]:
         logger.debug("Embedding content for vector search")
         await source.vectorize()
+
+    # Optionally delete original source file after processing
+    if isinstance(content_state, dict):
+        delete_source_flag = content_state.get("delete_source")
+    else:
+        delete_source_flag = getattr(content_state, "delete_source", None)
+
+    if delete_source_flag and original_path:
+        try:
+            if original_path.startswith("gs://"):
+                from google.cloud import storage  # type: ignore
+
+                bucket_name, blob_path = original_path[5:].split("/", 1)
+                storage.Client().bucket(bucket_name).blob(blob_path).delete(if_exists=True)
+            else:
+                if os.path.exists(original_path):
+                    os.unlink(original_path)
+            # Clear stored path since file is gone
+            source.asset = Asset(url=None, file_path=None)
+            await source.save()
+        except Exception as e:
+            logger.warning(f"Failed to delete source file {original_path}: {e}")
 
     return {"source": source}
 
@@ -125,7 +173,7 @@ async def transform_content(state: TransformationState) -> Optional[dict]:
     result = await transform_graph.ainvoke(
         dict(input_text=content, transformation=transformation)  # type: ignore[arg-type]
     )
-    await source.add_insight(transformation.title, result["output"])
+    await source.add_insight(transformation.title, result["output"], owner=source.owner)
     return {
         "transformation": [
             {
