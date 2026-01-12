@@ -117,6 +117,16 @@ export function useDeleteSource() {
       queryClient.invalidateQueries({ queryKey: ['sources'] })
       // Also invalidate the specific source
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.source(id) })
+
+      // Optimistically prune deleted source from any cached lists (any query whose key starts with 'sources')
+      queryClient.setQueriesData<SourceResponse[] | undefined>(
+        { predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'sources' },
+        (old) => {
+          if (!old) return old
+          return old.filter((s) => s.id !== id)
+        }
+      )
+
       toast({
         title: 'Success',
         description: 'Source deleted successfully',

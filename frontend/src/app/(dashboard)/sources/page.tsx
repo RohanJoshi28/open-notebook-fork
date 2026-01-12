@@ -27,6 +27,7 @@ export default function SourcesPage() {
     open: false,
     source: null
   })
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const router = useRouter()
   const tableRef = useRef<HTMLTableElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -235,6 +236,7 @@ export default function SourcesPage() {
     if (!deleteDialog.source) return
 
     try {
+      setDeletingId(deleteDialog.source.id)
       await sourcesApi.delete(deleteDialog.source.id)
       toast.success('Source deleted successfully')
       // Remove the deleted source from the list
@@ -243,6 +245,8 @@ export default function SourcesPage() {
     } catch (err) {
       console.error('Failed to delete source:', err)
       toast.error('Failed to delete source')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -350,7 +354,8 @@ export default function SourcesPage() {
                     "border-b transition-colors cursor-pointer",
                     selectedIndex === index
                       ? "bg-accent"
-                      : "hover:bg-muted/50"
+                      : "hover:bg-muted/50",
+                    deletingId === source.id && "opacity-50 animate-pulse pointer-events-none"
                   )}
                 >
                   <td className="h-12 px-4">
@@ -419,6 +424,7 @@ export default function SourcesPage() {
         confirmText="Delete"
         confirmVariant="destructive"
         onConfirm={handleDeleteConfirm}
+        isLoading={!!deletingId}
       />
     </AppShell>
   )

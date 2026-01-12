@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { isAxiosError } from 'axios'
 import ReactMarkdown from 'react-markdown'
 import { sourcesApi } from '@/lib/api/sources'
@@ -66,6 +67,7 @@ export function SourceDetailContent({
   onChatClick,
   onClose
 }: SourceDetailContentProps) {
+  const router = useRouter()
   const [source, setSource] = useState<SourceDetailResponse | null>(null)
   const [insights, setInsights] = useState<SourceInsightResponse[]>([])
   const [transformations, setTransformations] = useState<Transformation[]>([])
@@ -79,6 +81,7 @@ export function SourceDetailContent({
   const [isDownloadingFile, setIsDownloadingFile] = useState(false)
   const [fileAvailable, setFileAvailable] = useState<boolean | null>(null)
   const [selectedInsight, setSelectedInsight] = useState<SourceInsightResponse | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchSource = useCallback(async () => {
     try {
@@ -298,12 +301,19 @@ export function SourceDetailContent({
 
     if (confirm('Are you sure you want to delete this source?')) {
       try {
+        setIsDeleting(true)
         await sourcesApi.delete(source.id)
         toast.success('Source deleted successfully')
         onClose?.()
+        // If we are on the standalone source page, navigate back to the list
+        if (!onClose) {
+          router.push('/sources')
+        }
       } catch (error) {
         console.error('Failed to delete source:', error)
         toast.error('Failed to delete source')
+      } finally {
+        setIsDeleting(false)
       }
     }
   }
@@ -358,7 +368,7 @@ export function SourceDetailContent({
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" disabled={isDeleting}>
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -390,9 +400,10 @@ export function SourceDetailContent({
                 <DropdownMenuItem
                   className="text-destructive"
                   onClick={handleDelete}
+                  disabled={isDeleting}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Source
+                  {isDeleting ? 'Deleting…' : 'Delete Source'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

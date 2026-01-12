@@ -365,6 +365,11 @@ async def create_source(
     """Create a new source with support for both JSON and multipart form data."""
     source_data, upload_file = form_data
 
+    # Safety valve: optionally force synchronous processing (useful if the
+    # background worker is unavailable in a given environment).
+    if os.getenv("FORCE_SYNC_PROCESSING", "").lower() == "true":
+        source_data.async_processing = False
+
     try:
         logger.info(
             "create_source: user=%s type=%s notebooks=%s async=%s embed=%s title=%s has_file=%s url=%s",

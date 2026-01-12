@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { ModalProvider } from '@/components/providers/ModalProvider'
+import { DbVmGate } from '@/components/db/DbVmGate'
 
 export default function DashboardLayout({
   children,
@@ -51,7 +52,9 @@ export default function DashboardLayout({
 
   return (
     <ErrorBoundary>
-      {children}
+      <DbVmGate>
+        {children}
+      </DbVmGate>
       <ModalProvider />
     </ErrorBoundary>
   )

@@ -1,0 +1,31 @@
+substitutions:
+  _IMAGE: gcr.io/f10-basement-bar/open-notebook
+
+steps:
+  # Pull prior cache image if available (ignore failure)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull ${_IMAGE}:cache || true'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '--cache-from=${_IMAGE}:cache'
+      - '-t'
+      - '${_IMAGE}:${BUILD_ID}'
+      - '-t'
+      - '${_IMAGE}:latest'
+      - '-t'
+      - '${_IMAGE}:cache'
+      - '.'
+
+images:
+  - '${_IMAGE}:${BUILD_ID}'
+  - '${_IMAGE}:latest'
+  - '${_IMAGE}:cache'

@@ -228,7 +228,23 @@ async def repo_delete(record_id: Union[str, RecordID]):
             return await connection.delete(ensure_record_id(record_id))
     except Exception as e:
         logger.exception(e)
-        raise RuntimeError(f"Failed to delete record: {str(e)}")
+        # Reset shared client and retry once on transaction conflicts
+        msg = str(e)
+        global _db_client, _db_initialized  # type: ignore
+        _db_client = None
+        _db_initialized = False
+        if (
+            "Failed to commit transaction" in msg
+            or "read or write conflict" in msg
+            or "can be retried" in msg
+        ):
+            try:
+                async with db_connection() as connection:
+                    return await connection.delete(ensure_record_id(record_id))
+            except Exception as e2:
+                logger.exception(e2)
+                raise RuntimeError(f"Failed to delete record after retry: {str(e2)}")
+        raise RuntimeError(f"Failed to delete record: {msg}")
 
 
 async def repo_insert(

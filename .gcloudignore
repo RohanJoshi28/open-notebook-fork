@@ -1,0 +1,22 @@
+# Keep uploads lean; Cloud Build uses this over .gitignore.
+#!include:.gitignore
+
+# Ensure heavy/irrelevant paths are excluded even if not in .gitignore
+.git/
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+*.log
+
+node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/.eslintcache
+
+dist/
+build/
+.DS_Store

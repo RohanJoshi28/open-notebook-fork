@@ -1,5 +1,7 @@
+import os
 from typing import Any, Dict, List, Optional
 
+import httpx
 from loguru import logger
 from surreal_commands import get_command_status, submit_command
 
@@ -37,6 +39,7 @@ class CommandService:
             logger.info(
                 f"Submitted command job: {cmd_id_str} for {module_name}.{command_name}"
             )
+            await CommandService._wake_worker_if_configured()
             return cmd_id_str
 
         except Exception as e:
@@ -66,6 +69,23 @@ class CommandService:
         except Exception as e:
             logger.error(f"Failed to get command status: {e}")
             raise
+
+    @staticmethod
+    async def _wake_worker_if_configured() -> None:
+        """
+        Ping the worker Cloud Run service to cold-start it when min_instances=0.
+        No-op if WORKER_PING_URL is not set.
+        """
+        url = os.environ.get("WORKER_PING_URL")
+        if not url:
+            return
+        timeout = float(os.environ.get("WORKER_PING_TIMEOUT", "6.0"))
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                await client.get(url)
+            logger.debug(f"Pinged worker at {url}")
+        except Exception as e:
+            logger.warning(f"Worker ping failed (non-fatal): {e}")
 
     @staticmethod
     async def list_command_jobs(

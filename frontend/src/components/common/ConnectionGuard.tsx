@@ -21,20 +21,7 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
     resetConfig()
 
     try {
-      const config = await getConfig()
-
-      // Check if database is offline
-      if (config.dbStatus === 'offline') {
-        setError({
-          type: 'database-offline',
-          details: {
-            message: 'The API server is running, but the database is not accessible',
-            attemptedUrl: config.apiUrl,
-          },
-        })
-        setIsChecking(false)
-        return
-      }
+      await getConfig()
 
       // If we got here, connection is good
       setError(null)

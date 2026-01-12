@@ -27,6 +27,7 @@ from api.routers import (
     sources,
     speaker_profiles,
     transformations,
+    infra,
 )
 from api.routers import commands as commands_router
 from open_notebook.database.async_migrate import AsyncMigrationManager
@@ -64,10 +65,10 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Database is already at the latest version. No migrations needed.")
     except Exception as e:
-        logger.error(f"CRITICAL: Database migration failed: {str(e)}")
+        # Do not crash the API if the DB is offline; the infra endpoints must stay available
+        logger.error(f"Database migration failed (DB may be offline): {str(e)}")
         logger.exception(e)
-        # Fail fast - don't start the API with an outdated database schema
-        raise RuntimeError(f"Failed to run database migrations: {str(e)}") from e
+        logger.warning("Continuing API startup so the UI can offer a 'Start server' action.")
 
     logger.success("API initialization completed successfully")
 
@@ -146,6 +147,7 @@ app.include_router(embedding.router, prefix="/api", tags=["embedding"])
 app.include_router(embedding_rebuild.router, prefix="/api/embeddings", tags=["embeddings"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(context.router, prefix="/api", tags=["context"])
+app.include_router(infra.router, prefix="/api", tags=["infra"])
 app.include_router(sources.router, prefix="/api", tags=["sources"])
 app.include_router(insights.router, prefix="/api", tags=["insights"])
 app.include_router(commands_router.router, prefix="/api", tags=["commands"])

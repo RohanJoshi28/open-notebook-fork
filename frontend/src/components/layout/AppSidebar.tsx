@@ -26,6 +26,7 @@ import { AddSourceDialog } from '@/components/sources/AddSourceDialog'
 import { CreateNotebookDialog } from '@/components/notebooks/CreateNotebookDialog'
 import { GeneratePodcastDialog } from '@/components/podcasts/GeneratePodcastDialog'
 import { Separator } from '@/components/ui/separator'
+import { useDbVmControl } from '@/components/db/DbVmGate'
 import {
   Book,
   Search,
@@ -39,6 +40,8 @@ import {
   FileText,
   Plus,
   Wrench,
+  Power,
+  Loader2,
 } from 'lucide-react'
 
 const navigation = [
@@ -78,6 +81,7 @@ export function AppSidebar() {
   const pathname = usePathname()
   const { logout } = useAuth()
   const { isCollapsed, toggleCollapse } = useSidebarStore()
+  const { stop, status: vmStatus, isStopping } = useDbVmControl()
 
   const [createMenuOpen, setCreateMenuOpen] = useState(false)
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false)
@@ -289,6 +293,48 @@ export function AppSidebar() {
             isCollapsed && 'px-2'
           )}
         >
+          <div
+            className={cn(
+              'flex',
+              isCollapsed ? 'justify-center' : 'justify-start'
+            )}
+          >
+            {isCollapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="w-full justify-center"
+                    disabled={vmStatus !== 'running' || isStopping}
+                    onClick={stop}
+                  >
+                    {isStopping ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Power className="h-4 w-4 text-red-500" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Stop server</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="outline"
+              className="w-full justify-start gap-3"
+              disabled={vmStatus !== 'running' || isStopping}
+              onClick={stop}
+            >
+              {isStopping ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Power className="h-4 w-4 text-red-500" />
+              )}
+              {isStopping ? 'Stopping…' : 'Stop server'}
+            </Button>
+            )}
+          </div>
+
           <div
             className={cn(
               'flex',

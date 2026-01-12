@@ -173,6 +173,7 @@ export function SourcesColumn({
                     onRefresh={onRefresh}
                     showRemoveFromNotebook={true}
                     contextMode={contextSelections?.[source.id]}
+                    className={sourceToDelete === source.id ? 'opacity-50 animate-pulse pointer-events-none ring-1 ring-destructive/30' : ''}
                     onContextModeChange={onContextModeChange
                       ? (mode) => onContextModeChange(source.id, mode)
                       : undefined
