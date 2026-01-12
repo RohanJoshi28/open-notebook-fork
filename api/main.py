@@ -123,8 +123,23 @@ class LoggingRoute(APIRoute):
 app.router.route_class = LoggingRoute
 
 # Add JWT authentication middleware first
-# Exclude auth + config endpoints
-app.add_middleware(JWTAuthMiddleware, excluded_paths=["/", "/health", "/docs", "/openapi.json", "/redoc", "/api/auth/status", "/api/auth/login/google", "/api/config"])
+# Exclude auth + config endpoints + infra controls (needed before DB is up)
+app.add_middleware(
+    JWTAuthMiddleware,
+    excluded_paths=[
+        "/",
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/api/auth/status",
+        "/api/auth/login/google",
+        "/api/config",
+        "/api/infra/db-vm/status",
+        "/api/infra/db-vm/start",
+        "/api/infra/db-vm/stop",
+    ],
+)
 
 # Add CORS middleware last (so it processes first)
 app.add_middleware(

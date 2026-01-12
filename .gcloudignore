@@ -1,5 +1,8 @@
 # Keep uploads lean; Cloud Build uses this over .gitignore.
 #!include:.gitignore
+#!include:.dockerignore
+!frontend/src/components/notebooks/**
+!frontend/src/app/(dashboard)/notebooks/**
 
 # Ensure heavy/irrelevant paths are excluded even if not in .gitignore
 .git/
@@ -20,3 +23,25 @@ frontend/.eslintcache
 dist/
 build/
 .DS_Store
+
+# Trim giant root-level artifacts that aren't needed for builds
+/*.pdf
+/*.csv
+/*.tsv
+/*.xlsx
+/*.xlsb
+/*.zip
+/*.gz
+/*.bz2
+/*.7z
+/*.mp4
+/*.mov
+/*.mp3
+/*.m4a
+/*.dmg
+/*.pkg
+/*.exe
+/*.app
+/*.bin
+/*.epub
+/*.ics

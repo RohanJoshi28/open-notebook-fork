@@ -5,6 +5,7 @@ import { Power, RefreshCcw, Server, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDbVmStatus, useStartDbVm, useStopDbVm } from '@/lib/hooks/use-db-vm'
+import type { DbVmStatusResponse } from '@/lib/api/infra'
 
 const STORAGE_KEY = 'db-vm-start-ts'
 
@@ -45,7 +46,7 @@ export function DbVmGate({ children }: DbVmGateProps) {
     (process.env.NEXT_PUBLIC_DISABLE_DB_VM_GATE === 'true' || isLocalhost) &&
     process.env.NEXT_PUBLIC_FORCE_DB_VM_GATE !== 'true'
 
-  const { data, isLoading, refetch } = useDbVmStatus()
+  const { data, refetch, isFetching, isFetchedAfterMount, isLoading } = useDbVmStatus()
   const startMutation = useStartDbVm()
   const stopMutation = useStopDbVm()
 
@@ -56,15 +57,19 @@ export function DbVmGate({ children }: DbVmGateProps) {
   const [startTimestamp, setStartTimestamp] = useState<number | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
 
-  const status = data?.status ?? 'unknown'
-  const rawStatus = data?.rawStatus
-  const estimatedSeconds = data?.config?.estimatedStartSeconds ?? 90
+  const status = (data as DbVmStatusResponse | undefined)?.status ?? 'unknown'
+  const rawStatus = (data as DbVmStatusResponse | undefined)?.rawStatus
+  const estimatedSeconds =
+    (data as DbVmStatusResponse | undefined)?.config?.estimatedStartSeconds ?? 90
   const isSuspending = status === 'suspending' || isSuspendingLocal
   const isStartingFromServer = status === 'starting'
+  const isValidating = isLoading || isFetching || !isFetchedAfterMount
+  const isCheckingRunning = isValidating && status === 'running'
+  const showProgress = isStarting && !!startTimestamp
 
   // Progress animation for the 90s bar
   useEffect(() => {
-    if (!isStarting || !startTimestamp) return
+    if (!showProgress) return
 
     const id = setInterval(() => {
       const elapsedMs = Date.now() - startTimestamp
@@ -73,7 +78,7 @@ export function DbVmGate({ children }: DbVmGateProps) {
     }, 400)
 
     return () => clearInterval(id)
-  }, [estimatedSeconds, isStarting, startTimestamp])
+  }, [estimatedSeconds, isStarting, startTimestamp, showProgress])
 
   // Auto-complete progress when VM flips to running
   useEffect(() => {
@@ -93,7 +98,7 @@ export function DbVmGate({ children }: DbVmGateProps) {
     }
   }, [startTimestamp, isStarting])
 
-  // Restore start state on mount / when server says starting
+  // Restore start state on mount only if this browser initiated the start
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
@@ -102,13 +107,8 @@ export function DbVmGate({ children }: DbVmGateProps) {
         setStartTimestamp(ts)
         setIsStarting(true)
       }
-    } else if (isStartingFromServer && !isStarting) {
-      const now = Date.now()
-      setStartTimestamp(now)
-      setIsStarting(true)
-      localStorage.setItem(STORAGE_KEY, now.toString())
     }
-  }, [isStartingFromServer, isStarting])
+  }, [])
 
   const start = useCallback(async () => {
     setStartError(null)
@@ -146,6 +146,15 @@ export function DbVmGate({ children }: DbVmGateProps) {
     }
   }, [status])
 
+  // While suspending, poll every ~10s to pick up the transition to suspended
+  useEffect(() => {
+    if (!(isSuspending || isSuspendingLocal)) return
+    const id = setInterval(() => {
+      void refetch()
+    }, 10_000)
+    return () => clearInterval(id)
+  }, [isSuspending, isSuspendingLocal, refetch])
+
   const contextValue: DbVmContextValue = useMemo(
     () => ({
       status,
@@ -162,10 +171,11 @@ export function DbVmGate({ children }: DbVmGateProps) {
     [status, rawStatus, isStarting, isStartingFromServer, isStopping, isSuspending, progress, estimatedSeconds, start, stop, refetch]
   )
 
+  // Gate only when we know it's not running or we're in a transition
   const shouldGate =
-    status !== 'running' || isStarting || isStopping || isLoading
+    isValidating || status !== 'running' || isStarting || isStopping || isSuspending
 
-  const startDisabled = isStarting || isStartingFromServer || isStopping || isSuspending
+  const startDisabled = isCheckingRunning || isStarting || isStartingFromServer || isStopping || isSuspending
 
   return (
     <DbVmContext.Provider value={contextValue}>
@@ -191,23 +201,27 @@ export function DbVmGate({ children }: DbVmGateProps) {
                   Database VM
                 </p>
                 <p className="text-xl font-semibold">
-                  {status === 'running'
-                    ? 'Online'
-                    : isSuspending || isStopping
-                      ? 'Suspending...'
-                      : (isStarting || isStartingFromServer)
-                        ? 'Starting...'
-                        : 'Offline'}
+                  {isValidating
+                    ? 'Checking status...'
+                    : status === 'running'
+                      ? 'Online'
+                      : isSuspending || isStopping
+                        ? 'Suspending...'
+                        : (isStarting || isStartingFromServer)
+                          ? 'Starting...'
+                          : 'Offline'}
                 </p>
               </div>
             </div>
 
             <p className="text-sm text-white/70 mb-6">
-              {isStarting
-                ? 'Warming up the database server. This can take a short while.'
-                : isSuspending || isStopping
-                  ? 'The server is suspending; please wait until it finishes.'
-                  : 'The database VM is currently off. Start it to enter Open Notebook.'}
+              {isValidating
+                ? 'Verifying the database server status...'
+                : isStarting || isStartingFromServer
+                  ? 'Warming up the database server. This can take a short while.'
+                  : isSuspending || isStopping
+                    ? 'The server is suspending; please wait until it finishes.'
+                    : 'The database VM is currently off. Start it to enter Open Notebook.'}
             </p>
 
             <div className="space-y-4">
@@ -215,17 +229,24 @@ export function DbVmGate({ children }: DbVmGateProps) {
                 size="lg"
                 className={cn(
                   'w-full text-base font-semibold h-11',
-                  isStarting
+                  isStarting || isStartingFromServer
                     ? 'bg-amber-400 text-slate-900 hover:bg-amber-300'
-                    : 'bg-emerald-400 text-slate-900 hover:bg-emerald-300'
+                    : isValidating
+                      ? 'bg-slate-200 text-slate-900'
+                      : 'bg-emerald-400 text-slate-900 hover:bg-emerald-300'
                 )}
                 onClick={start}
-                disabled={startDisabled}
+                disabled={startDisabled || isValidating}
               >
-                {isStarting ? (
+                {isValidating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Starting server…
+                    Checking...
+                  </>
+                ) : isStarting || isStartingFromServer ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Starting...
                   </>
                 ) : isSuspending || isStopping ? (
                   <>
@@ -240,12 +261,14 @@ export function DbVmGate({ children }: DbVmGateProps) {
                 )}
               </Button>
 
-              <div className="h-3 rounded-full bg-white/10 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-300 via-emerald-300 to-emerald-500 transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+              {showProgress && (
+                <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-300 via-emerald-300 to-emerald-500 transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              )}
 
               {startError && (
                 <p className="text-xs text-rose-200">{startError}</p>

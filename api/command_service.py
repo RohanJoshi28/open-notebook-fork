@@ -76,8 +76,13 @@ class CommandService:
         Ping the worker Cloud Run service to cold-start it when min_instances=0.
         No-op if WORKER_PING_URL is not set.
         """
-        url = os.environ.get("WORKER_PING_URL")
+        url = (
+            os.environ.get("WORKER_PING_URL")
+            or os.environ.get("WORKER_URL")
+            or os.environ.get("INTERNAL_WORKER_URL")
+        )
         if not url:
+            logger.debug("Skipping worker ping: WORKER_PING_URL not set")
             return
         timeout = float(os.environ.get("WORKER_PING_TIMEOUT", "6.0"))
         try:

@@ -6,6 +6,7 @@ import { QueryProvider } from "@/components/providers/QueryProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ConnectionGuard } from "@/components/common/ConnectionGuard";
+import { DbVmGate } from "@/components/db/DbVmGate";
 import { themeScript } from "@/lib/theme-script";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -29,10 +30,12 @@ export default function RootLayout({
         <ErrorBoundary>
           <ThemeProvider>
             <QueryProvider>
-              <ConnectionGuard>
-                {children}
-                <Toaster />
-              </ConnectionGuard>
+              <DbVmGate>
+                <ConnectionGuard>
+                  {children}
+                  <Toaster />
+                </ConnectionGuard>
+              </DbVmGate>
             </QueryProvider>
           </ThemeProvider>
         </ErrorBoundary>

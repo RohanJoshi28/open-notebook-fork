@@ -26,6 +26,8 @@ export function LoginForm() {
         version: cfg.version,
         buildTime: cfg.buildTime,
       })
+      // Always cache client ID (even if authRequired is already known)
+      setGoogleClientId(cfg.googleClientId || null)
     }).catch(err => {
       console.error('Failed to load config:', err)
     })
