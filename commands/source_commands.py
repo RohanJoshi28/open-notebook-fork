@@ -11,6 +11,20 @@ from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import Source
 from open_notebook.domain.transformation import Transformation
 from open_notebook.config import GCS_BUCKET, STORAGE_BACKEND
+from open_notebook.utils.google_drive import GoogleDriveClient
+from open_notebook.utils.storage import save_bytes_to_storage
+
+# Some environments install moviepy without exposing AudioFileClip at the package root.
+# Patch it before importing the graph so content_core can resolve the symbol.
+try:  # pragma: no cover - defensive shim
+    import moviepy  # type: ignore
+
+    if not hasattr(moviepy, "AudioFileClip"):
+        from moviepy.editor import AudioFileClip  # type: ignore
+
+        moviepy.AudioFileClip = AudioFileClip
+except Exception:
+    logger.warning("moviepy shim failed; AudioFileClip may be unavailable")
 
 try:
     from open_notebook.graphs.source import source_graph
@@ -84,6 +98,55 @@ def _materialize_content_file(content_state: Dict[str, Any]) -> None:
             raise FileNotFoundError(f"File not found: {file_path}")
 
 
+async def _maybe_fetch_drive_file(content_state: Dict[str, Any], owner_id: Optional[str]) -> None:
+    """
+    If the content state references a Google Drive file, download it using the owner's credentials
+    and persist it to the configured storage backend. Updates content_state in-place with a usable
+    file_path and preserves the original sharing URL.
+    """
+    if not content_state or not isinstance(content_state, dict):
+        return
+    drive_file_id = content_state.get("drive_file_id")
+    if not drive_file_id:
+        return
+    if not owner_id:
+        raise RuntimeError("Owner id is required to fetch Drive content")
+
+    try:
+        logger.info(
+            "drive_fetch start owner=%s file_id=%s resource_key_len=%s export_mime=%s",
+            owner_id,
+            drive_file_id,
+            len(content_state.get("drive_resource_key") or ""),
+            content_state.get("drive_export_mime_type"),
+        )
+        client = await GoogleDriveClient.from_user(owner_id)
+        resource_key = content_state.get("drive_resource_key")
+        export_mime = content_state.get("drive_export_mime_type")
+        meta = await client.get_file_metadata(drive_file_id, resource_key)
+        meta = await client.resolve_drive_file(meta)
+        data, filename, content_type = await client.download_file(meta, export_mime=export_mime)
+
+        storage_path = save_bytes_to_storage(data, filename, prefix="drive")
+        content_state["_orig_file_path"] = storage_path
+        content_state["_orig_url"] = content_state.get("url")
+        content_state["file_path"] = storage_path
+        # Use Drive title if not already set
+        if "title" not in content_state or not content_state.get("title"):
+            content_state["title"] = meta.name
+        logger.info(
+            "drive_fetch success file_id=%s shortcut=%s stored=%s bytes=%s content_type=%s",
+            meta.id,
+            meta.is_shortcut,
+            storage_path,
+            len(data),
+            content_type,
+        )
+    except Exception as exc:
+        logger.exception(f"Failed to fetch Drive file {drive_file_id}: {exc}")
+        raise
+
+
 @command(
     "process_source",
     app="open_notebook",
@@ -117,8 +180,9 @@ async def process_source_command(
         logger.info(f"Transformations: {input_data.transformations}")
         logger.info(f"Embed: {input_data.embed}")
 
-        # Ensure file is available locally (handles GCS-backed uploads)
+        # If Drive metadata is present, fetch the file using user's credentials
         if input_data.content_state:
+            await _maybe_fetch_drive_file(input_data.content_state, input_data.owner)
             _materialize_content_file(input_data.content_state)
         original_file_path = input_data.content_state.get("_orig_file_path") if input_data.content_state else None
 

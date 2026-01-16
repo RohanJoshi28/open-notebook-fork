@@ -130,13 +130,20 @@ export function LoginForm() {
     if (!googleClientId || typeof window === 'undefined') return
     const origin = window.location.origin
     const redirectUri = `${origin}/auth/callback`
+    const scope = [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/drive.metadata.readonly',
+    ].join(' ')
     const params = new URLSearchParams({
       client_id: googleClientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: 'openid email profile',
+      scope,
       access_type: 'offline',
-      prompt: 'select_account',
+      prompt: 'consent select_account',
       hd: 'force10partners.com',
       include_granted_scopes: 'true',
     })

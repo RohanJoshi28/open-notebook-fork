@@ -75,6 +75,21 @@ export const sourcesApi = {
     if (data.title) {
       formData.append('title', data.title)
     }
+    if (data.drive_file_id) {
+      formData.append('drive_file_id', data.drive_file_id)
+    }
+    if (data.drive_resource_key) {
+      formData.append('drive_resource_key', data.drive_resource_key)
+    }
+    if (data.drive_file_name) {
+      formData.append('drive_file_name', data.drive_file_name)
+    }
+    if (data.drive_mime_type) {
+      formData.append('drive_mime_type', data.drive_mime_type)
+    }
+    if (data.drive_export_mime_type) {
+      formData.append('drive_export_mime_type', data.drive_export_mime_type)
+    }
     if (data.url) {
       formData.append('url', data.url)
     }

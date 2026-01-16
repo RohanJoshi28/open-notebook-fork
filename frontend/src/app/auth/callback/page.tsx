@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/use-auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 
-export default function GoogleCallbackPage() {
+function CallbackContent() {
   const params = useSearchParams()
   const router = useRouter()
   const { loginWithCode, error } = useAuth()
@@ -55,5 +55,31 @@ export default function GoogleCallbackPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function LoadingCard() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Signing you in…</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <LoadingSpinner />
+            <span>Loading Google response…</span>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export default function GoogleCallbackPage() {
+  return (
+    <Suspense fallback={<LoadingCard />}>
+      <CallbackContent />
+    </Suspense>
   )
 }

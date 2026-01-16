@@ -24,6 +24,9 @@ import { useCreateSource } from '@/lib/hooks/use-sources'
 import { useSettings } from '@/lib/hooks/use-settings'
 import { CreateSourceRequest } from '@/lib/types/api'
 import apiClient from '@/lib/api/client'
+import { driveApi } from '@/lib/api/drive'
+import { DriveResolvedItem } from '@/lib/types/drive'
+import { isDriveUrl } from '@/lib/utils/google-drive'
 
 const createSourceSchema = z.object({
   type: z.enum(['link', 'upload', 'text']),
@@ -88,6 +91,12 @@ interface BatchProgress {
   failed: number
   currentItem?: string
 }
+
+type SourceItem =
+  | { kind: 'url'; url: string }
+  | { kind: 'drive'; url: string; drive: DriveResolvedItem }
+  | { kind: 'file'; file: File }
+  | { kind: 'text' }
 
 export function AddSourceDialog({ 
   open, 
@@ -187,7 +196,7 @@ export function AddSourceDialog({
   const watchedTitle = watch('title')
 
   // Batch mode detection
-  const { isBatchMode, itemCount, parsedUrls, parsedFiles } = useMemo(() => {
+  const { isBatchMode, parsedUrls, parsedFiles } = useMemo(() => {
     let urlCount = 0
     let fileCount = 0
     let parsedUrls: string[] = []
@@ -208,9 +217,8 @@ export function AddSourceDialog({
     }
 
     const isBatchMode = urlCount > 1 || fileCount > 1
-    const itemCount = selectedType === 'link' ? urlCount : fileCount
 
-    return { isBatchMode, itemCount, parsedUrls, parsedFiles }
+    return { isBatchMode, parsedUrls, parsedFiles }
   }, [selectedType, watchedUrl, watchedFile])
 
   // Step validation - now reactive with watched values
@@ -301,26 +309,84 @@ export function AddSourceDialog({
     setSelectedTransformations(updated)
   }
 
-  // Single source submission (returns source id)
-  const submitSingleSource = async (data: CreateSourceFormData): Promise<string> => {
-    const createRequest: CreateSourceRequest = {
-      type: data.type,
+  const buildCreateRequest = (item: SourceItem, data: CreateSourceFormData): CreateSourceRequest & { file?: File } => {
+    const base: CreateSourceRequest & { file?: File } = {
+      type: item.kind === 'file' ? 'upload' : data.type,
       notebooks: selectedNotebooks,
-      url: data.type === 'link' ? data.url : undefined,
-      content: data.type === 'text' ? data.content : undefined,
-      title: data.title,
       transformations: selectedTransformations,
       embed: data.embed,
       delete_source: false,
       async_processing: true,
+      title: data.title,
     }
 
-    if (data.type === 'upload' && data.file) {
-      const file = data.file instanceof FileList ? data.file[0] : data.file
-      const requestWithFile = createRequest as CreateSourceRequest & { file?: File }
-      requestWithFile.file = file
+    switch (item.kind) {
+      case 'url':
+        base.type = 'link'
+        base.url = item.url
+        break
+      case 'drive':
+        base.type = 'link'
+        base.url = item.url
+        base.drive_file_id = item.drive.id
+        base.drive_resource_key = item.drive.resource_key
+        base.drive_file_name = item.drive.name
+        base.drive_mime_type = item.drive.mime_type
+        base.drive_export_mime_type = item.drive.export_mime_type
+        if (!base.title) base.title = item.drive.name
+        break
+      case 'file':
+        base.type = 'upload'
+        base.file = item.file
+        break
+      case 'text':
+        base.type = 'text'
+        base.content = data.content
+        base.title = data.title
+        break
     }
+    return base
+  }
 
+  const resolveDriveItems = async (url: string): Promise<DriveResolvedItem[]> => {
+    setProcessingStatus({ message: 'Resolving Google Drive link...' })
+    const res = await driveApi.resolve(url, true)
+    if (!res.items || res.items.length === 0) {
+      throw new Error('No files found in Drive link')
+    }
+    return res.items
+  }
+
+  const buildItems = async (data: CreateSourceFormData): Promise<SourceItem[]> => {
+    if (data.type === 'text') return [{ kind: 'text' }]
+    if (data.type === 'upload') {
+      const files = parsedFiles.length > 0 ? parsedFiles : (data.file instanceof FileList ? Array.from(data.file) : [])
+      return files.map(file => ({ kind: 'file', file }))
+    }
+    if (data.type === 'link') {
+      const urls = parsedUrls
+      const items: SourceItem[] = []
+      for (const url of urls) {
+        if (isDriveUrl(url)) {
+          try {
+            const resolved = await resolveDriveItems(url)
+            resolved.forEach(item => items.push({ kind: 'drive', url, drive: item }))
+          } catch (err) {
+            console.error('Drive resolve failed', err)
+            throw err
+          }
+        } else {
+          items.push({ kind: 'url', url })
+        }
+      }
+      return items
+    }
+    return []
+  }
+
+  // Single source submission (returns source id)
+  const submitSingleSource = async (item: SourceItem, data: CreateSourceFormData): Promise<string> => {
+    const createRequest = buildCreateRequest(item, data)
     log('Submitting source', { createRequest })
     const res = await createSource.mutateAsync(createRequest)
     const sid = res?.id || ''
@@ -329,51 +395,29 @@ export function AddSourceDialog({
   }
 
   // Batch submission
-  const submitBatch = async (data: CreateSourceFormData): Promise<{ success: number; failed: number }> => {
+  const submitBatch = async (items: SourceItem[], data: CreateSourceFormData): Promise<{ success: number; failed: number }> => {
     const results = { success: 0, failed: 0 }
-    const items: { type: 'url' | 'file'; value: string | File }[] = []
-
-    // Collect items to process
-    if (data.type === 'link' && parsedUrls.length > 0) {
-      parsedUrls.forEach(url => items.push({ type: 'url', value: url }))
-    } else if (data.type === 'upload' && parsedFiles.length > 0) {
-      parsedFiles.forEach(file => items.push({ type: 'file', value: file }))
-    }
-
     setBatchProgress({
       total: items.length,
       completed: 0,
       failed: 0,
     })
 
-    // Process each item sequentially
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
-      const itemLabel = item.type === 'url'
-        ? (item.value as string).substring(0, 50) + '...'
-        : (item.value as File).name
+      const itemLabel =
+        item.kind === 'file'
+          ? item.file.name
+          : item.kind === 'drive'
+            ? item.drive.name
+            : item.kind === 'url'
+              ? item.url.substring(0, 50) + '...'
+              : 'text'
 
-      setBatchProgress(prev => prev ? {
-        ...prev,
-        currentItem: itemLabel,
-      } : null)
+      setBatchProgress(prev => prev ? { ...prev, currentItem: itemLabel } : null)
 
       try {
-        const createRequest: CreateSourceRequest = {
-          type: item.type === 'url' ? 'link' : 'upload',
-          notebooks: selectedNotebooks,
-          url: item.type === 'url' ? item.value as string : undefined,
-          transformations: selectedTransformations,
-          embed: data.embed,
-          delete_source: false,
-          async_processing: true,
-        }
-
-        if (item.type === 'file') {
-          const requestWithFile = createRequest as CreateSourceRequest & { file?: File }
-          requestWithFile.file = item.value as File
-        }
-
+        const createRequest = buildCreateRequest(item, data)
         await createSource.mutateAsync(createRequest)
         results.success++
       } catch (error) {
@@ -398,13 +442,18 @@ export function AddSourceDialog({
         return
       }
       setProcessing(true)
+      setProcessingStatus({ message: 'Preparing items...' })
+      const items = await buildItems(data)
+      if (!items || items.length === 0) {
+        throw new Error('No items to import')
+      }
 
-      if (isBatchMode) {
-        // Batch submission
-        setProcessingStatus({ message: `Processing ${itemCount} sources...` })
-        const results = await submitBatch(data)
+      const batchMode = items.length > 1
 
-        // Show summary toast
+      if (batchMode) {
+        setProcessingStatus({ message: `Processing ${items.length} sources...` })
+        const results = await submitBatch(items, data)
+
         if (results.failed === 0) {
           toast.success(`${results.success} source${results.success !== 1 ? 's' : ''} created successfully`)
         } else if (results.success === 0) {
@@ -415,15 +464,14 @@ export function AddSourceDialog({
 
         handleClose()
       } else {
-        // Single source submission with status polling
+        const item = items[0]
         setProcessingStatus({ message: 'Submitting source for processing...' })
-        const sourceId = await submitSingleSource(data)
+        const sourceId = await submitSingleSource(item, data)
         if (!sourceId) {
           throw new Error('Source id missing from response')
         }
         setProcessingStatus({ message: 'Processing source...' })
 
-        // Poll status until completed/failed
         const poll = async () => {
           const statusRes = await apiClient.get(`/sources/${encodeURIComponent(sourceId)}/status`)
           const statusJson = statusRes.data
@@ -450,8 +498,9 @@ export function AddSourceDialog({
       }
     } catch (error) {
       console.error('Error creating source:', error)
+      const message = error instanceof Error ? error.message : 'Error creating source. Please try again.'
       setProcessingStatus({
-        message: 'Error creating source. Please try again.',
+        message,
       })
       timeoutRef.current = setTimeout(() => {
         setProcessing(false)

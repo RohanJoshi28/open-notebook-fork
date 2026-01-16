@@ -1,0 +1,2 @@
+-- Rollback Migration 12: drop google_credential table
+REMOVE TABLE google_credential;

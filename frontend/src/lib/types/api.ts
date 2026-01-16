@@ -89,6 +89,12 @@ export interface CreateSourceRequest {
   file_path?: string
   content?: string
   title?: string
+  // Google Drive-specific (for private link imports)
+  drive_file_id?: string
+  drive_resource_key?: string
+  drive_file_name?: string
+  drive_mime_type?: string
+  drive_export_mime_type?: string
   transformations?: string[]
   embed?: boolean
   delete_source?: boolean

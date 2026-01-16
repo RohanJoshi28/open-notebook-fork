@@ -1,2 +1,17 @@
 #V2
 SELECT id,name FROM notebook LIMIT 5;
+USE NS open_notebook DB production; SELECT id,status,title,error FROM source;
+USE NS open_notebook DB production; SELECT id, owner, title FROM source;
+USE NS open_notebook DB production; SELECT id,email,sub FROM user;
+USE NS open_notebook DB production; SELECT count() FROM source;
+USE NS open_notebook DB production; SELECT id,name,provider,type FROM model;
+INFO FOR TABLE google_credential;
+CREATE google_credential SET user = user:t1, refresh_token='r', expires_at=time::now();
+REMOVE FIELD expires_at ON TABLE google_credential; DEFINE FIELD expires_at ON TABLE google_credential TYPE option<string>;
+SELECT * FROM google_credential;
+INFO FOR TABLE google_credential;
+CREATE google_credential CONTENT { user: user:t6fru2kaploualwlo9s8, refresh_token: 'rtest', access_token:'atest', expires_at:'2026-01-12T23:54:28.145247+00:00', scope:'s', token_type:'Bearer' };
+DELETE google_credential;
+SELECT * FROM google_credential;
+DELETE google_credential;
+DELETE user;

@@ -309,9 +309,22 @@ export function SourceDetailContent({
         if (!onClose) {
           router.push('/sources')
         }
-      } catch (error) {
-        console.error('Failed to delete source:', error)
-        toast.error('Failed to delete source')
+      } catch (error: unknown) {
+        const status = (error as { response?: { status?: number } })?.response?.status
+        const message =
+          (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+          (error as Error)?.message ||
+          'Failed to delete source'
+        if (status === 404) {
+          toast.success('Source was already deleted')
+          onClose?.()
+          if (!onClose) {
+            router.push('/sources')
+          }
+        } else {
+          console.error('Failed to delete source:', error)
+          toast.error(message)
+        }
       } finally {
         setIsDeleting(false)
       }

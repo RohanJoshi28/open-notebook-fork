@@ -90,6 +90,7 @@ async def save_source(state: SourceState) -> dict:
 
     # Update the source with processed content
     original_path = content_state.get("_orig_file_path") if isinstance(content_state, dict) else getattr(content_state, "_orig_file_path", None)
+    original_url = content_state.get("_orig_url") if isinstance(content_state, dict) else getattr(content_state, "_orig_url", None)
 
     # Extract fields in a dict-friendly way so we don't blow up when extract_content returns a plain dict
     def _cs_val(key: str):
@@ -97,17 +98,23 @@ async def save_source(state: SourceState) -> dict:
             return content_state.get(key)
         return getattr(content_state, key, None)
 
+    # Sanitize content (Surreal serialization fails on null bytes)
+    def _sanitize_text(val):
+        if isinstance(val, str):
+            return val.replace("\x00", "")
+        return val
+
     source.asset = Asset(
-        url=original_path or _cs_val("url"),
+        url=original_url or original_path or _cs_val("url"),
         file_path=original_path or _cs_val("file_path"),
     )
-    source.full_text = _cs_val("content")
+    source.full_text = _sanitize_text(_cs_val("content"))
     
     # Preserve user-provided title; only override if extracted title exists AND current title is missing or placeholder
     title_val = _cs_val("title")
     if title_val:
         if not source.title or source.title.strip().lower() in {"processing...", ""}:
-            source.title = title_val
+            source.title = _sanitize_text(title_val)
     
     await source.save()
 

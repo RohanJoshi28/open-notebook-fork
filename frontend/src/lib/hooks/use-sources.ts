@@ -119,11 +119,13 @@ export function useDeleteSource() {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.source(id) })
 
       // Optimistically prune deleted source from any cached lists (any query whose key starts with 'sources')
-      queryClient.setQueriesData<SourceResponse[] | undefined>(
+      queryClient.setQueriesData<SourceResponse[] | SourceResponse | undefined>(
         { predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'sources' },
         (old) => {
           if (!old) return old
-          return old.filter((s) => s.id !== id)
+          if (Array.isArray(old)) return old.filter((s) => s.id !== id)
+          // If the cached data is a single SourceResponse (detail query), drop it
+          return undefined
         }
       )
 
@@ -132,10 +134,34 @@ export function useDeleteSource() {
         description: 'Source deleted successfully',
       })
     },
-    onError: () => {
+    onError: (err, id) => {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as Error)?.message ||
+        'Failed to delete source'
+
+      // Treat 404 as already-deleted success to avoid noisy errors when the UI sends a duplicate delete
+      if (status === 404) {
+        // Optimistically prune from cache anyway
+        queryClient.setQueriesData<SourceResponse[] | SourceResponse | undefined>(
+          { predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'sources' },
+          (old) => {
+            if (!old) return old
+            if (Array.isArray(old)) return old.filter((s) => s.id !== id)
+            return undefined
+          }
+        )
+        toast({
+          title: 'Deleted',
+          description: 'Source was already removed.',
+        })
+        return
+      }
+
       toast({
         title: 'Error',
-        description: 'Failed to delete source',
+        description: message,
         variant: 'destructive',
       })
     },

@@ -1,11 +1,13 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import { Power, RefreshCcw, Server, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useDbVmStatus, useStartDbVm, useStopDbVm } from '@/lib/hooks/use-db-vm'
 import type { DbVmStatusResponse } from '@/lib/api/infra'
+import { getConfig } from '@/lib/config'
 
 const STORAGE_KEY = 'db-vm-start-ts'
 
@@ -36,17 +38,100 @@ interface DbVmGateProps {
   children: React.ReactNode
 }
 
-export function DbVmGate({ children }: DbVmGateProps) {
-  // Allow disabling the gate for local/dev by env or hostname
-  const isLocalhost =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1')
-  const gateDisabled =
-    (process.env.NEXT_PUBLIC_DISABLE_DB_VM_GATE === 'true' || isLocalhost) &&
-    process.env.NEXT_PUBLIC_FORCE_DB_VM_GATE !== 'true'
+const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '::1', '0.0.0.0', 'host.docker.internal']
 
-  const { data, refetch, isFetching, isFetchedAfterMount, isLoading } = useDbVmStatus()
+function isPrivateIp(hostname: string) {
+  return (
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
+  )
+}
+
+function isLocalHostname(hostname: string | undefined) {
+  if (!hostname) return false
+  const lower = hostname.toLowerCase()
+  return (
+    LOCAL_HOSTNAMES.includes(lower) ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.localdomain') ||
+    lower.endsWith('.test') ||
+    lower.endsWith('.nip.io') ||
+    lower === 'lvh.me' ||
+    lower.endsWith('.lvh.me') ||
+    isPrivateIp(lower)
+  )
+}
+
+function apiLooksLocal(apiUrl: string | undefined, fallbackOrigin?: string) {
+  if (!apiUrl) return false
+  try {
+    const url = new URL(apiUrl, fallbackOrigin)
+    return isLocalHostname(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+export function DbVmGate({ children }: DbVmGateProps) {
+  const pathname = usePathname()
+  const skipGate = pathname?.startsWith('/auth') ?? false
+
+  const forceGate = process.env.NEXT_PUBLIC_FORCE_DB_VM_GATE === 'true'
+  const envDisabled = process.env.NEXT_PUBLIC_DISABLE_DB_VM_GATE === 'true'
+  // Default to off in development/local to avoid flashing the gate; we only turn it on
+  // when we positively detect a remote/VM-backed deployment.
+  const [gateEnabled, setGateEnabled] = useState<boolean>(() => {
+    if (skipGate) return false
+    if (forceGate) return true
+    if (envDisabled) return false
+    // In dev, assume local unless proven otherwise
+    if (process.env.NODE_ENV !== 'production') return false
+    return false
+  })
+
+  // Refine gate decision using backend config (tells us if VM controls are configured)
+  useEffect(() => {
+    let cancelled = false
+    if (skipGate) {
+      setGateEnabled(false)
+      return
+    }
+    if (forceGate) {
+      setGateEnabled(true)
+      return
+    }
+    if (envDisabled) return setGateEnabled(false)
+
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname
+      if (isLocalHostname(hostname)) return setGateEnabled(false)
+      if (apiLooksLocal(process.env.NEXT_PUBLIC_API_URL, window.location.origin)) return setGateEnabled(false)
+    }
+
+    // Ask backend if VM controls are actually configured; disable gate if not.
+    getConfig()
+      .then((cfg) => {
+        if (cancelled) return
+        if (cfg.dbVmEnabled === false) {
+          setGateEnabled(false)
+        } else {
+          setGateEnabled(true)
+        }
+      })
+      .catch(() => {
+        // On failure, keep current decision to avoid blocking login.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [forceGate, envDisabled, skipGate])
+
+  const { data, refetch, isFetching, isFetchedAfterMount, isLoading } = useDbVmStatus({
+    enabled: gateEnabled && !skipGate,
+  })
   const startMutation = useStartDbVm()
   const stopMutation = useStopDbVm()
 
@@ -63,8 +148,8 @@ export function DbVmGate({ children }: DbVmGateProps) {
     (data as DbVmStatusResponse | undefined)?.config?.estimatedStartSeconds ?? 90
   const isSuspending = status === 'suspending' || isSuspendingLocal
   const isStartingFromServer = status === 'starting'
-  const isValidating = isLoading || isFetching || !isFetchedAfterMount
-  const isCheckingRunning = isValidating && status === 'running'
+  const isValidating = gateEnabled && !skipGate && (isLoading || isFetching || !isFetchedAfterMount)
+  const isCheckingRunning = gateEnabled && !skipGate && isValidating && status === 'running'
   const showProgress = isStarting && !!startTimestamp
 
   // Progress animation for the 90s bar
@@ -173,15 +258,15 @@ export function DbVmGate({ children }: DbVmGateProps) {
 
   // Gate only when we know it's not running or we're in a transition
   const shouldGate =
-    isValidating || status !== 'running' || isStarting || isStopping || isSuspending
+    gateEnabled &&
+    !skipGate &&
+    (isValidating || status !== 'running' || isStarting || isStopping || isSuspending)
 
   const startDisabled = isCheckingRunning || isStarting || isStartingFromServer || isStopping || isSuspending
 
   return (
     <DbVmContext.Provider value={contextValue}>
-      {gateDisabled ? (
-        children
-      ) : shouldGate ? (
+      {shouldGate ? (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 transition-opacity duration-300">
           <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur">
             <div className="flex items-center gap-3 mb-4">

@@ -123,6 +123,11 @@ def parse_source_form_data(
     notebook_id: Optional[str] = Form(None),
     notebooks: Optional[str] = Form(None),  # JSON string of notebook IDs
     url: Optional[str] = Form(None),
+    drive_file_id: Optional[str] = Form(None),
+    drive_resource_key: Optional[str] = Form(None),
+    drive_file_name: Optional[str] = Form(None),
+    drive_mime_type: Optional[str] = Form(None),
+    drive_export_mime_type: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     transformations: Optional[str] = Form(None),  # JSON string of transformation IDs
@@ -168,6 +173,11 @@ def parse_source_form_data(
             notebook_id=notebook_id,
             notebooks=notebooks_list,
             url=url,
+            drive_file_id=drive_file_id,
+            drive_resource_key=drive_resource_key,
+            drive_file_name=drive_file_name,
+            drive_mime_type=drive_mime_type,
+            drive_export_mime_type=drive_export_mime_type,
             content=content,
             title=title,
             file_path=None,  # Will be set later if file is uploaded
@@ -372,7 +382,7 @@ async def create_source(
 
     try:
         logger.info(
-            "create_source: user=%s type=%s notebooks=%s async=%s embed=%s title=%s has_file=%s url=%s",
+            "create_source: user=%s type=%s notebooks=%s async=%s embed=%s title=%s has_file=%s url=%s drive_id=%s drive_rk_len=%s",
             user_id,
             source_data.type,
             source_data.notebooks,
@@ -381,6 +391,8 @@ async def create_source(
             source_data.title,
             bool(upload_file),
             source_data.url,
+            source_data.drive_file_id,
+            len(source_data.drive_resource_key or ""),
         )
         # Verify all specified notebooks exist (backward compatibility support)
         for notebook_id in (source_data.notebooks or []):
@@ -410,6 +422,24 @@ async def create_source(
                     status_code=400, detail="URL is required for link type"
                 )
             content_state["url"] = source_data.url
+            # Attach Drive metadata if provided (used by worker to fetch private files)
+            if source_data.drive_file_id:
+                content_state["drive_file_id"] = source_data.drive_file_id
+                content_state["drive_resource_key"] = source_data.drive_resource_key
+                content_state["drive_file_name"] = source_data.drive_file_name
+                content_state["drive_mime_type"] = source_data.drive_mime_type
+                content_state["drive_export_mime_type"] = source_data.drive_export_mime_type
+                # If user didn't provide a title, default to Drive file name
+                if not source_data.title and source_data.drive_file_name:
+                    source_data.title = source_data.drive_file_name
+                logger.info(
+                    "create_source: drive metadata attached id=%s rk_len=%s mime=%s export=%s name=%s",
+                    source_data.drive_file_id,
+                    len(source_data.drive_resource_key or ""),
+                    source_data.drive_mime_type,
+                    source_data.drive_export_mime_type,
+                    source_data.drive_file_name,
+                )
         elif source_data.type == "upload":
             # Use uploaded file path or provided file_path (backward compatibility)
             final_file_path = file_path or source_data.file_path
@@ -513,6 +543,13 @@ async def create_source(
                     transformations=transformation_ids,
                     embed=source_data.embed,
                     owner=user_id,
+                )
+
+                logger.debug(
+                    "create_source: enqueue command content_keys=%s notebooks=%s embed=%s",
+                    list(content_state.keys()),
+                    source_data.notebooks,
+                    source_data.embed,
                 )
 
                 command_id = await CommandService.submit_command_job(
@@ -735,11 +772,16 @@ async def create_source(
 
 
 @router.post("/sources/json", response_model=SourceResponse)
-async def create_source_json(source_data: SourceCreate):
-    """Create a new source using JSON payload (legacy endpoint for backward compatibility)."""
-    # Convert to form data format and call main endpoint
+async def create_source_json(
+    source_data: SourceCreate,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Create a new source using JSON payload (legacy endpoint for backward compatibility).
+    We manually pass user_id so dependency injection remains intact when delegating to create_source.
+    """
     form_data = (source_data, None)
-    return await create_source(form_data)
+    return await create_source(form_data, user_id)  # type: ignore[arg-type]
 
 
 async def _resolve_source_file(source_id: str) -> tuple[str, str]:

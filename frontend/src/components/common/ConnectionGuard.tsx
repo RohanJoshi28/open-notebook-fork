@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import { ConnectionError } from '@/lib/types/config'
 import { ConnectionErrorOverlay } from '@/components/errors/ConnectionErrorOverlay'
 import { getConfig, resetConfig } from '@/lib/config'
@@ -10,6 +11,9 @@ interface ConnectionGuardProps {
 }
 
 export function ConnectionGuard({ children }: ConnectionGuardProps) {
+  const pathname = usePathname()
+  const skipCheck = pathname?.startsWith('/auth') ?? false
+
   const [error, setError] = useState<ConnectionError | null>(null)
   const [isChecking, setIsChecking] = useState(true)
 
@@ -50,11 +54,17 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
 
   // Check connection on mount
   useEffect(() => {
+    if (skipCheck) {
+      setIsChecking(false)
+      setError(null)
+      return
+    }
     checkConnection()
-  }, [checkConnection])
+  }, [checkConnection, skipCheck])
 
   // Add keyboard shortcut for retry (R key)
   useEffect(() => {
+    if (skipCheck) return
     const handleKeyPress = (e: KeyboardEvent) => {
       if (error && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault()
@@ -64,16 +74,28 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
 
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [error, checkConnection])
+  }, [error, checkConnection, skipCheck])
 
   // Show overlay if there's an error
   if (error) {
     return <ConnectionErrorOverlay error={error} onRetry={checkConnection} />
   }
 
-  // Show nothing while checking (prevents flash of content)
+  // Never block auth routes
+  if (skipCheck) {
+    return <>{children}</>
+  }
+
+  // Show a lightweight splash while checking to avoid a blank screen
   if (isChecking) {
-    return null
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 rounded-full border-2 border-muted-foreground/40 border-t-primary animate-spin" />
+          <div className="text-sm font-medium">Connecting to API…</div>
+        </div>
+      </div>
+    )
   }
 
   // Render children if connection is good

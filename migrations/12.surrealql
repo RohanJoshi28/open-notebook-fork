@@ -1,0 +1,12 @@
+-- Migration 12: Google OAuth credentials for Drive access
+
+DEFINE TABLE IF NOT EXISTS google_credential SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS user ON TABLE google_credential TYPE record<user>;
+DEFINE FIELD IF NOT EXISTS refresh_token ON TABLE google_credential TYPE string;
+DEFINE FIELD IF NOT EXISTS access_token ON TABLE google_credential TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS expires_at ON TABLE google_credential TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS scope ON TABLE google_credential TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS token_type ON TABLE google_credential TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created ON TABLE google_credential DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE google_credential DEFAULT time::now() VALUE time::now();
+DEFINE INDEX IF NOT EXISTS idx_google_credential_user ON TABLE google_credential COLUMNS user UNIQUE CONCURRENTLY;

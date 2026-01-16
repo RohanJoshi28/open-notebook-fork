@@ -159,10 +159,11 @@ async def repo_create(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
         async with db_connection() as connection:
             return parse_record_ids(await connection.insert(table, data))
     except RuntimeError as e:
-        logger.error(str(e))
+        logger.error(f"repo_create runtime error table={table} data_keys={list(data.keys())}: {e}")
         raise
     except Exception as e:
-        logger.exception(e)
+        # Log full context to aid debugging (may include Surreal error payload)
+        logger.exception(f"repo_create failed table={table} data={data}")
         raise RuntimeError("Failed to create record")
 
 
@@ -191,7 +192,8 @@ async def repo_upsert(
     _coerce_owner(data)
     if add_timestamp:
         data["updated"] = datetime.now(timezone.utc)
-    query = f"UPSERT {id if id else table} MERGE $data;"
+    target = id if id else table
+    query = f"UPSERT {target} MERGE $data;"
     return await repo_query(query, {"data": data})
 
 

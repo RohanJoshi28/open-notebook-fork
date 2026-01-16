@@ -13,6 +13,7 @@ from open_notebook.utils.version_utils import (
     compare_versions,
     get_version_from_github,
 )
+from api.infrastructure_service import is_db_vm_configured
 
 router = APIRouter()
 
@@ -134,27 +135,47 @@ async def get_config(request: Request):
     # Get current version
     current_version = get_version()
 
-    # Check for updates (with caching and error handling)
-    # This MUST NOT break the endpoint - wrapped in try-except as extra safety
+    # Check for updates (with caching and error handling) — optionally skipped in dev
+    skip_version_check = os.environ.get("SKIP_VERSION_CHECK") == "1" or os.environ.get("NODE_ENV") == "development"
     latest_version = None
     has_update = False
 
-    try:
-        latest_version, has_update = get_latest_version_cached(current_version)
-    except Exception as e:
-        # Extra safety: ensure version check never breaks the config endpoint
-        logger.error(f"Unexpected error during version check: {e}")
+    if not skip_version_check:
+        try:
+            latest_version, has_update = get_latest_version_cached(current_version)
+        except Exception as e:
+            # Extra safety: ensure version check never breaks the config endpoint
+            logger.error(f"Unexpected error during version check: {e}")
 
-    # Check database health
-    db_health = await check_database_health()
-    db_status = db_health["status"]
+    # Check database health (skip in dev when explicitly requested)
+    skip_db_health = os.environ.get("SKIP_DB_HEALTH_CHECK") == "1" or os.environ.get("NODE_ENV") == "development"
+    if skip_db_health:
+        db_health = {"status": "online", "skipped": True}
+        db_status = "online"
+    else:
+        db_health = await check_database_health()
+        db_status = db_health["status"]
+        if db_status == "offline":
+            logger.warning(f"Database offline: {db_health.get('error', 'Unknown error')}")
 
-    if db_status == "offline":
-        logger.warning(f"Database offline: {db_health.get('error', 'Unknown error')}")
+    skip_db_vm_check = os.environ.get("SKIP_DB_VM_CHECK") == "1" or os.environ.get("NODE_ENV") == "development"
+    db_vm_enabled = True
+    if skip_db_vm_check:
+        db_vm_enabled = False
+    else:
+        try:
+            db_vm_enabled, _ = is_db_vm_configured()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"DB VM config check failed: {exc}")
+            db_vm_enabled = False
 
     return {
         "version": current_version,
         "latestVersion": latest_version,
         "hasUpdate": has_update,
         "dbStatus": db_status,
+        "dbVmEnabled": db_vm_enabled,
+        "dbHealthSkipped": skip_db_health,
+        "versionCheckSkipped": skip_version_check,
+        "dbVmCheckSkipped": skip_db_vm_check,
     }

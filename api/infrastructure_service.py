@@ -33,6 +33,40 @@ _SESSION: AuthorizedSession | None = None
 _CONFIG: DbVmConfig | None = None
 
 
+def is_db_vm_configured() -> tuple[bool, str | None]:
+    """
+    Lightweight check to see if DB VM controls are configured.
+    Returns (enabled, reason_if_disabled).
+    """
+    if os.environ.get("SKIP_DB_VM_CHECK") == "1" or os.environ.get("NODE_ENV") == "development":
+        return False, "skipped in dev"
+    try:
+        project = os.environ.get("DB_VM_PROJECT")
+        zone = os.environ.get("DB_VM_ZONE", "us-central1-c")
+        name = os.environ.get("DB_VM_NAME", "open-notebook-updated")
+
+        credentials = None
+        default_project = None
+        try:
+            credentials, default_project = google.auth.default(scopes=["https://www.googleapis.com/auth/compute"])
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("No default credentials for DB VM: %s", exc)
+
+        active_project = project or default_project
+        if not active_project:
+            return False, "missing project or credentials"
+        if not zone:
+            return False, "missing zone"
+        if not name:
+            return False, "missing VM name"
+        if credentials is None and project is None:
+            return False, "missing credentials"
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("DB VM config check failed: %s", exc)
+        return False, str(exc)
+
+
 def get_db_vm_config() -> DbVmConfig:
     """
     Resolve database VM identity from environment with sensible defaults.

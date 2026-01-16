@@ -144,6 +144,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null })
         try {
           const apiUrl = await getApiUrl()
+          console.debug('[Auth] loginWithCode start', { apiUrl, redirectUri, codeLen: code?.length ?? 0 })
           const response = await fetch(`${apiUrl}/api/auth/login/google-code`, {
             method: 'POST',
             headers: {
@@ -151,9 +152,20 @@ export const useAuthStore = create<AuthState>()(
             },
             body: JSON.stringify({ code, redirect_uri: redirectUri })
           })
+          console.debug('[Auth] loginWithCode response', {
+            status: response.status,
+            ok: response.ok,
+            url: response.url,
+            redirected: response.redirected,
+          })
 
           if (response.ok) {
             const data = await response.json()
+            console.debug('[Auth] loginWithCode success', {
+              hasToken: !!data?.token,
+              userEmail: data?.user?.email,
+              driveScope: data?.drive_scope,
+            })
             set({
               isAuthenticated: true,
               token: data.token,
@@ -166,6 +178,7 @@ export const useAuthStore = create<AuthState>()(
             let message = `Authentication failed (${response.status})`
             try {
               const errData = await response.json()
+              console.debug('[Auth] loginWithCode error payload', errData)
               if (errData?.detail) {
                 message = Array.isArray(errData.detail)
                   ? errData.detail.map((d: unknown) => {
@@ -181,11 +194,12 @@ export const useAuthStore = create<AuthState>()(
               console.warn('Failed to parse auth error response', err)
             }
             set({
-              error: message,
-              isLoading: false,
-              isAuthenticated: false,
-              token: null
-            })
+                error: message,
+                isLoading: false,
+                isAuthenticated: false,
+                token: null
+              })
+            console.warn('[Auth] loginWithCode failed', { status: response.status, message })
             return false
           }
         } catch (error) {

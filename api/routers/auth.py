@@ -4,10 +4,11 @@ Provides endpoints for Google login and status.
 """
 
 import os
+from datetime import datetime, timedelta, timezone
+
+import httpx
 from fastapi import APIRouter, Body, HTTPException, Request
 from loguru import logger
-import httpx
-import os
 
 from api.auth import (
     assert_allowed_domain,
@@ -15,7 +16,9 @@ from api.auth import (
     issue_app_jwt,
     verify_google_id_token,
 )
+from open_notebook.domain.google_credential import GoogleCredential
 from open_notebook.domain.user import User
+from open_notebook.utils.google_drive import DRIVE_SCOPES
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -36,6 +39,7 @@ async def get_auth_status():
 async def login_with_google(id_token: str = Body(..., embed=True)):
     """
     Accept a Google ID token from the client, verify domain, create user, and return app JWT.
+    Note: This flow does NOT issue Drive refresh tokens; prefer the code flow for Drive imports.
     """
     claims = verify_google_id_token(id_token)
     email = claims.get("email")
@@ -70,7 +74,12 @@ async def login_with_google_code(
 
     token_url = "https://oauth2.googleapis.com/token"
     # Log minimal debug info about the incoming code (length only, no value)
-    logger.info(f"Google auth code received len={len(code) if code else 0} redirect_uri={redirect_uri}")
+    logger.info(
+        "google-code: received auth code len=%s redirect_uri=%s client_id_suffix=%s",
+        len(code) if code else 0,
+        redirect_uri,
+        client_id[-6:] if client_id else None,
+    )
 
     payload = {
         "code": code,
@@ -111,6 +120,98 @@ async def login_with_google_code(
     email = claims.get("email")
     assert_allowed_domain(email)
     user = await get_or_create_user_from_google_claims(claims)
+
+    # Validate required Drive scopes
+    scope_str = token_data.get("scope") if token_data else ""
+    scopes_returned = scope_str.split() if isinstance(scope_str, str) else []
+    logger.debug(
+        "google-code: token exchange success scopes=%s has_refresh=%s has_access=%s expires_in=%s token_type=%s",
+        scopes_returned,
+        bool(token_data.get("refresh_token")),
+        bool(token_data.get("access_token")),
+        token_data.get("expires_in"),
+        token_data.get("token_type"),
+    )
+    missing = [s for s in DRIVE_SCOPES if s not in scopes_returned]
+    if missing:
+        logger.error(f"Login missing Drive scopes; received={scopes_returned}")
+        raise HTTPException(
+            status_code=403,
+            detail="Drive access not granted. Please re-login and allow Drive access.",
+        )
+
+    refresh_token = token_data.get("refresh_token")
+    access_token = token_data.get("access_token")
+    expires_in = token_data.get("expires_in", 3600)
+    token_type = token_data.get("token_type", "Bearer")
+
+    # Persist credentials (idempotent upsert keyed by user, without embedding user id into record id)
+    try:
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in) - 60)
+        expires_at_str = expires_at.isoformat()
+        from open_notebook.database.repository import repo_query, ensure_record_id
+
+        if not refresh_token:
+            raise HTTPException(
+                status_code=403,
+                detail="Google did not return a refresh token. Re-run login with consent to enable Drive imports.",
+            )
+
+        cred_data = {
+            "user": ensure_record_id(user.id),
+            "refresh_token": refresh_token,
+            "access_token": access_token,
+            "expires_at": expires_at_str,
+            "scope": scope_str,
+            "token_type": token_type,
+            "updated": datetime.now(timezone.utc),
+        }
+        logger.debug(
+            "google-code: upsert-by-user user=%s expires_at=%s scope_len=%s",
+            user.id,
+            expires_at_str,
+            len(scope_str.split()) if isinstance(scope_str, str) else 0,
+        )
+
+        # Try update by unique user; if nothing updated, create new
+        update_result = await repo_query(
+            """
+            UPDATE google_credential SET refresh_token = $refresh_token,
+                                         access_token = $access_token,
+                                         expires_at = $expires_at,
+                                         scope = $scope,
+                                         token_type = $token_type,
+                                         updated = time::now()
+            WHERE user = $user
+            RETURN id;
+            """,
+            cred_data,
+        )
+        if not update_result:
+            create_data = cred_data.copy()
+            create_data["created"] = datetime.now(timezone.utc)
+            create_result = await repo_query(
+                "CREATE google_credential CONTENT $data RETURN id;",
+                {"data": create_data},
+            )
+            logger.info("google-code: created credential id=%s", create_result[0].get("id") if create_result else None)
+        else:
+            logger.info("google-code: updated credential id=%s", update_result[0].get("id"))
+    except Exception as exc:
+        logger.exception(f"Failed to persist Drive credentials: {exc}")
+        try:
+            logger.error(
+                "credential debug: user=%s access_present=%s refresh_present=%s expires_at=%s scope=%s",
+                user.id,
+                bool(access_token),
+                bool(refresh_token),
+                expires_at_str if 'expires_at_str' in locals() else None,
+                scope_str,
+            )
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail="Failed to store Google credentials")
+
     token = issue_app_jwt(user)
     logger.info(f"User {email} logged in via Google (code flow)")
     return {
@@ -121,6 +222,7 @@ async def login_with_google_code(
             "name": user.name,
             "picture": user.picture,
         },
+        "drive_scope": True,
     }
 
 

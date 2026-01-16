@@ -242,9 +242,21 @@ export default function SourcesPage() {
       // Remove the deleted source from the list
       setSources(prev => prev.filter(s => s.id !== deleteDialog.source?.id))
       setDeleteDialog({ open: false, source: null })
-    } catch (err) {
-      console.error('Failed to delete source:', err)
-      toast.error('Failed to delete source')
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as Error)?.message ||
+        'Failed to delete source'
+      if (status === 404) {
+        // Treat already-deleted as success and prune from UI
+        setSources(prev => prev.filter(s => s.id !== deleteDialog.source?.id))
+        setDeleteDialog({ open: false, source: null })
+        toast.success('Source was already deleted')
+      } else {
+        console.error('Failed to delete source:', err)
+        toast.error(message)
+      }
     } finally {
       setDeletingId(null)
     }

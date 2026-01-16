@@ -289,6 +289,12 @@ class SourceCreate(BaseModel):
     file_path: Optional[str] = Field(None, description="File path for upload type")
     content: Optional[str] = Field(None, description="Text content for text type")
     title: Optional[str] = Field(None, description="Source title")
+    # Google Drive-specific fields (optional)
+    drive_file_id: Optional[str] = Field(None, description="Google Drive file ID")
+    drive_resource_key: Optional[str] = Field(None, description="Resource key for link-shared files")
+    drive_file_name: Optional[str] = Field(None, description="Original Drive file name")
+    drive_mime_type: Optional[str] = Field(None, description="Google Drive mimeType")
+    drive_export_mime_type: Optional[str] = Field(None, description="Export MIME type for Google Docs editors")
     transformations: Optional[List[str]] = Field(
         default_factory=list, description="Transformation IDs to apply"
     )

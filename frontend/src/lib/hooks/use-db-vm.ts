@@ -6,8 +6,13 @@ import { QUERY_KEYS } from '@/lib/api/query-client'
 const STATUS_STORAGE_KEY = 'db-vm-last-status'
 const MAX_CACHE_AGE_MS = 60_000 // 1 minute; after that we force a live check
 
-export function useDbVmStatus(): UseQueryResult<DbVmStatusResponse> {
+type DbVmStatusOptions = {
+  enabled?: boolean
+}
+
+export function useDbVmStatus(options?: DbVmStatusOptions): UseQueryResult<DbVmStatusResponse> {
   const queryClient = useQueryClient()
+  const enabled = options?.enabled ?? true
 
   const getCachedStatus = (): DbVmStatusResponse | undefined => {
     // Prefer react-query cache
@@ -36,10 +41,18 @@ export function useDbVmStatus(): UseQueryResult<DbVmStatusResponse> {
   const initial = getCachedStatus()
   const [hasValidated, setHasValidated] = useState(false)
 
+  const initialDataUpdatedAt = (() => {
+    if (!initial?.checkedAt) return undefined
+    const ts = new Date(initial.checkedAt).getTime()
+    if (Number.isNaN(ts)) return undefined
+    return ts
+  })()
+
   const query = useQuery<DbVmStatusResponse>({
     queryKey: QUERY_KEYS.dbVmStatus,
     queryFn: () => infraApi.status(),
-    ...(initial ? { initialData: initial } : {}),
+    enabled,
+    ...(initial ? { initialData: initial, initialDataUpdatedAt } : {}),
     placeholderData: (prev) => prev ?? initial,
     refetchInterval: (query) => {
       // Poll every 10s when not running to detect transitions quickly
@@ -54,6 +67,20 @@ export function useDbVmStatus(): UseQueryResult<DbVmStatusResponse> {
     staleTime: 5_000,
     gcTime: 5 * 60 * 1000,
   })
+
+  // IMPORTANT:
+  // If this query is mounted while disabled (e.g. during OAuth redirect routes),
+  // and we have cached initialData, React Query may not automatically refetch
+  // when we later flip enabled=true (because the cached data looks "fresh").
+  // That can leave `isFetchedAfterMount=false` forever, which makes DbVmGate
+  // render "Checking status..." indefinitely. Force one live check when enabled.
+  useEffect(() => {
+    if (!enabled) return
+    if (query.isFetching) return
+    if (!query.isFetchedAfterMount) {
+      void query.refetch()
+    }
+  }, [enabled, query.isFetching, query.isFetchedAfterMount, query.refetch])
 
   // Track when we've completed a live check (used by the gate to avoid flashing login)
   useEffect(() => {

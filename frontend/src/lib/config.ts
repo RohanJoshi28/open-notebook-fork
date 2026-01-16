@@ -60,26 +60,33 @@ async function fetchConfig(): Promise<AppConfig> {
   console.log('🔧 [Config] Starting configuration detection...')
   console.log('🔧 [Config] Build time:', BUILD_TIME)
 
+  const isDev = process.env.NODE_ENV !== 'production'
+  const skipRuntimeConfig = process.env.NEXT_PUBLIC_SKIP_RUNTIME_CONFIG_FETCH === 'true'
+
   // STEP 1: Try to get runtime config from Next.js server-side endpoint
   // This allows API_URL to be set at runtime (not baked into build)
   // Note: Endpoint is at /config (not /api/config) to avoid reverse proxy conflicts
   let runtimeApiUrl: string | null = null
   let runtimeGoogleClientId: string | null = null
-  try {
-    console.log('🔧 [Config] Attempting to fetch runtime config from /config endpoint...')
-    const runtimeResponse = await fetch('/config', {
-      cache: 'no-store',
-    })
-    if (runtimeResponse.ok) {
-      const runtimeData = await runtimeResponse.json()
-      runtimeApiUrl = runtimeData.apiUrl
-      runtimeGoogleClientId = runtimeData.googleClientId ?? null
-      console.log('✅ [Config] Runtime API URL from server:', runtimeApiUrl)
-    } else {
-      console.log('⚠️ [Config] Runtime config endpoint returned status:', runtimeResponse.status)
+  if (!(isDev && skipRuntimeConfig)) {
+    try {
+      console.log('🔧 [Config] Attempting to fetch runtime config from /config endpoint...')
+      const runtimeResponse = await fetch('/config', {
+        cache: 'no-store',
+      })
+      if (runtimeResponse.ok) {
+        const runtimeData = await runtimeResponse.json()
+        runtimeApiUrl = runtimeData.apiUrl
+        runtimeGoogleClientId = runtimeData.googleClientId ?? null
+        console.log('✅ [Config] Runtime API URL from server:', runtimeApiUrl)
+      } else {
+        console.log('⚠️ [Config] Runtime config endpoint returned status:', runtimeResponse.status)
+      }
+    } catch (error) {
+      console.log('⚠️ [Config] Could not fetch runtime config:', error)
     }
-  } catch (error) {
-    console.log('⚠️ [Config] Could not fetch runtime config:', error)
+  } else {
+    console.log('🔧 [Config] Skipping runtime /config fetch in dev (NEXT_PUBLIC_SKIP_RUNTIME_CONFIG_FETCH=true)')
   }
 
   // STEP 2: Fallback to build-time environment variable
@@ -127,6 +134,7 @@ async function fetchConfig(): Promise<AppConfig> {
         latestVersion: data.latestVersion || null,
         hasUpdate: data.hasUpdate || false,
         dbStatus: data.dbStatus, // Can be undefined for old backends
+        dbVmEnabled: data.dbVmEnabled ?? true,
         googleClientId: runtimeGoogleClientId ?? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "422184430710-gkq59modau3sgpd3f734c020l1qo9eqv.apps.googleusercontent.com",
       }
       console.log('✅ [Config] Successfully loaded API config:', config)
@@ -145,6 +153,7 @@ async function fetchConfig(): Promise<AppConfig> {
       latestVersion: null,
       hasUpdate: false,
       dbStatus: 'offline',
+      dbVmEnabled: true,
       googleClientId: runtimeGoogleClientId ?? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "422184430710-gkq59modau3sgpd3f734c020l1qo9eqv.apps.googleusercontent.com",
     }
     return config
